@@ -103,10 +103,10 @@ class CrossbillClient:
         response = await self._request("GET", f"/api/v1/books/{book_id}")
         return response.json()
 
-    async def get_recently_viewed_books(self, limit: int = 10) -> dict:
-        """Get recently viewed books."""
+    async def get_recent_books(self, limit: int = 10) -> dict:
+        """Get the books last opened or synced."""
         response = await self._request(
-            "GET", "/api/v1/books/recently-viewed", params={"limit": limit}
+            "GET", "/api/v1/books/recent", params={"limit": limit}
         )
         return response.json()
 
@@ -351,15 +351,6 @@ class CrossbillClient:
         )
         return response.json()
 
-    async def get_reading_session_summary(self, reading_session_id: int) -> dict:
-        """Get a reading session's AI summary, generating it when not cached."""
-        response = await self._request(
-            "GET",
-            f"/api/v1/{reading_session_id}/ai_summary",
-            timeout=300.0,
-        )
-        return response.json()
-
     # --- Chapter content endpoint ---
 
     async def get_chapter_content(self, chapter_id: int) -> dict:
@@ -421,16 +412,16 @@ class CrossbillClient:
         response = await self._request("DELETE", f"/api/v1/jobs/batches/{batch_id}")
         return response.json()
 
-    # --- Semantic search endpoints ---
+    # --- Search endpoints ---
 
-    async def semantic_search(
+    async def global_search(
         self, query: str, book_id: int | None = None, limit: int = 10
     ) -> dict:
-        """Search embedded content by semantic similarity, grouped by content type."""
+        """Search the library: content ranked by similarity, plus books matched by name."""
         params: dict[str, str | int] = {"q": query, "limit": limit}
         if book_id is not None:
             params["book_id"] = book_id
-        response = await self._request("GET", "/api/v1/semantic/search", params=params)
+        response = await self._request("GET", "/api/v1/search", params=params)
         return response.json()
 
     async def related_content(

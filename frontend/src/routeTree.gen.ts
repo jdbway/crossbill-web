@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as LibraryRouteImport } from './routes/library'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as RegisterRouteImport } from './routes/register'
 import { Route as SettingsRouteImport } from './routes/settings'
@@ -19,12 +20,18 @@ import { Route as BookBookIdFlashcardsRouteImport } from './routes/book.$bookId/
 import { Route as BookBookIdHighlightsRouteImport } from './routes/book.$bookId/highlights'
 import { Route as BookBookIdNotesRouteImport } from './routes/book.$bookId/notes'
 import { Route as BookBookIdReflectionRouteImport } from './routes/book.$bookId/reflection'
-import { Route as BookBookIdSessionsRouteImport } from './routes/book.$bookId/sessions'
+import { Route as BookBookIdStatisticsRouteImport } from './routes/book.$bookId/statistics'
 import { Route as BookBookIdStructureRouteImport } from './routes/book.$bookId/structure'
+import { Route as BookBookIdReadRouteImport } from './routes/book_.$bookId/read'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LibraryRoute = LibraryRouteImport.update({
+  id: '/library',
+  path: '/library',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -72,9 +79,9 @@ const BookBookIdReflectionRoute = BookBookIdReflectionRouteImport.update({
   path: '/reflection',
   getParentRoute: () => BookBookIdRoute,
 } as any)
-const BookBookIdSessionsRoute = BookBookIdSessionsRouteImport.update({
-  id: '/sessions',
-  path: '/sessions',
+const BookBookIdStatisticsRoute = BookBookIdStatisticsRouteImport.update({
+  id: '/statistics',
+  path: '/statistics',
   getParentRoute: () => BookBookIdRoute,
 } as any)
 const BookBookIdStructureRoute = BookBookIdStructureRouteImport.update({
@@ -82,9 +89,15 @@ const BookBookIdStructureRoute = BookBookIdStructureRouteImport.update({
   path: '/structure',
   getParentRoute: () => BookBookIdRoute,
 } as any)
+const BookBookIdReadRoute = BookBookIdReadRouteImport.update({
+  id: '/book_/$bookId/read',
+  path: '/book/$bookId/read',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/library': typeof LibraryRoute
   '/login': typeof LoginRoute
   '/register': typeof RegisterRoute
   '/settings': typeof SettingsRoute
@@ -93,12 +106,14 @@ export interface FileRoutesByFullPath {
   '/book/$bookId/highlights': typeof BookBookIdHighlightsRoute
   '/book/$bookId/notes': typeof BookBookIdNotesRoute
   '/book/$bookId/reflection': typeof BookBookIdReflectionRoute
-  '/book/$bookId/sessions': typeof BookBookIdSessionsRoute
+  '/book/$bookId/statistics': typeof BookBookIdStatisticsRoute
   '/book/$bookId/structure': typeof BookBookIdStructureRoute
+  '/book/$bookId/read': typeof BookBookIdReadRoute
   '/book/$bookId/': typeof BookBookIdIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/library': typeof LibraryRoute
   '/login': typeof LoginRoute
   '/register': typeof RegisterRoute
   '/settings': typeof SettingsRoute
@@ -106,13 +121,15 @@ export interface FileRoutesByTo {
   '/book/$bookId/highlights': typeof BookBookIdHighlightsRoute
   '/book/$bookId/notes': typeof BookBookIdNotesRoute
   '/book/$bookId/reflection': typeof BookBookIdReflectionRoute
-  '/book/$bookId/sessions': typeof BookBookIdSessionsRoute
+  '/book/$bookId/statistics': typeof BookBookIdStatisticsRoute
   '/book/$bookId/structure': typeof BookBookIdStructureRoute
+  '/book/$bookId/read': typeof BookBookIdReadRoute
   '/book/$bookId': typeof BookBookIdIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/library': typeof LibraryRoute
   '/login': typeof LoginRoute
   '/register': typeof RegisterRoute
   '/settings': typeof SettingsRoute
@@ -121,14 +138,16 @@ export interface FileRoutesById {
   '/book/$bookId/highlights': typeof BookBookIdHighlightsRoute
   '/book/$bookId/notes': typeof BookBookIdNotesRoute
   '/book/$bookId/reflection': typeof BookBookIdReflectionRoute
-  '/book/$bookId/sessions': typeof BookBookIdSessionsRoute
+  '/book/$bookId/statistics': typeof BookBookIdStatisticsRoute
   '/book/$bookId/structure': typeof BookBookIdStructureRoute
+  '/book_/$bookId/read': typeof BookBookIdReadRoute
   '/book/$bookId/': typeof BookBookIdIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/library'
     | '/login'
     | '/register'
     | '/settings'
@@ -137,12 +156,14 @@ export interface FileRouteTypes {
     | '/book/$bookId/highlights'
     | '/book/$bookId/notes'
     | '/book/$bookId/reflection'
-    | '/book/$bookId/sessions'
+    | '/book/$bookId/statistics'
     | '/book/$bookId/structure'
+    | '/book/$bookId/read'
     | '/book/$bookId/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/library'
     | '/login'
     | '/register'
     | '/settings'
@@ -150,12 +171,14 @@ export interface FileRouteTypes {
     | '/book/$bookId/highlights'
     | '/book/$bookId/notes'
     | '/book/$bookId/reflection'
-    | '/book/$bookId/sessions'
+    | '/book/$bookId/statistics'
     | '/book/$bookId/structure'
+    | '/book/$bookId/read'
     | '/book/$bookId'
   id:
     | '__root__'
     | '/'
+    | '/library'
     | '/login'
     | '/register'
     | '/settings'
@@ -164,17 +187,20 @@ export interface FileRouteTypes {
     | '/book/$bookId/highlights'
     | '/book/$bookId/notes'
     | '/book/$bookId/reflection'
-    | '/book/$bookId/sessions'
+    | '/book/$bookId/statistics'
     | '/book/$bookId/structure'
+    | '/book_/$bookId/read'
     | '/book/$bookId/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  LibraryRoute: typeof LibraryRoute
   LoginRoute: typeof LoginRoute
   RegisterRoute: typeof RegisterRoute
   SettingsRoute: typeof SettingsRoute
   BookBookIdRoute: typeof BookBookIdRouteWithChildren
+  BookBookIdReadRoute: typeof BookBookIdReadRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -184,6 +210,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/library': {
+      id: '/library'
+      path: '/library'
+      fullPath: '/library'
+      preLoaderRoute: typeof LibraryRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -249,11 +282,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BookBookIdReflectionRouteImport
       parentRoute: typeof BookBookIdRoute
     }
-    '/book/$bookId/sessions': {
-      id: '/book/$bookId/sessions'
-      path: '/sessions'
-      fullPath: '/book/$bookId/sessions'
-      preLoaderRoute: typeof BookBookIdSessionsRouteImport
+    '/book/$bookId/statistics': {
+      id: '/book/$bookId/statistics'
+      path: '/statistics'
+      fullPath: '/book/$bookId/statistics'
+      preLoaderRoute: typeof BookBookIdStatisticsRouteImport
       parentRoute: typeof BookBookIdRoute
     }
     '/book/$bookId/structure': {
@@ -263,6 +296,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BookBookIdStructureRouteImport
       parentRoute: typeof BookBookIdRoute
     }
+    '/book_/$bookId/read': {
+      id: '/book_/$bookId/read'
+      path: '/book/$bookId/read'
+      fullPath: '/book/$bookId/read'
+      preLoaderRoute: typeof BookBookIdReadRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -271,7 +311,7 @@ interface BookBookIdRouteChildren {
   BookBookIdHighlightsRoute: typeof BookBookIdHighlightsRoute
   BookBookIdNotesRoute: typeof BookBookIdNotesRoute
   BookBookIdReflectionRoute: typeof BookBookIdReflectionRoute
-  BookBookIdSessionsRoute: typeof BookBookIdSessionsRoute
+  BookBookIdStatisticsRoute: typeof BookBookIdStatisticsRoute
   BookBookIdStructureRoute: typeof BookBookIdStructureRoute
   BookBookIdIndexRoute: typeof BookBookIdIndexRoute
 }
@@ -281,7 +321,7 @@ const BookBookIdRouteChildren: BookBookIdRouteChildren = {
   BookBookIdHighlightsRoute: BookBookIdHighlightsRoute,
   BookBookIdNotesRoute: BookBookIdNotesRoute,
   BookBookIdReflectionRoute: BookBookIdReflectionRoute,
-  BookBookIdSessionsRoute: BookBookIdSessionsRoute,
+  BookBookIdStatisticsRoute: BookBookIdStatisticsRoute,
   BookBookIdStructureRoute: BookBookIdStructureRoute,
   BookBookIdIndexRoute: BookBookIdIndexRoute,
 }
@@ -292,10 +332,12 @@ const BookBookIdRouteWithChildren = BookBookIdRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  LibraryRoute: LibraryRoute,
   LoginRoute: LoginRoute,
   RegisterRoute: RegisterRoute,
   SettingsRoute: SettingsRoute,
   BookBookIdRoute: BookBookIdRouteWithChildren,
+  BookBookIdReadRoute: BookBookIdReadRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

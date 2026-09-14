@@ -1,6 +1,6 @@
 [project]
 name = "crossbill-backend"
-version = "0.27.1"
+version = "0.29.0"
 description = "crossbill backend - KOReader highlights sync server"
 authors = [{ name = "User", email = "user@example.com" }]
 readme = "README.md"
@@ -29,6 +29,14 @@ dependencies = [
   "pgvector>=0.5.0",
   "sentry-sdk>=2.67.1",
   "structlog-sentry>=2.2.1",
+  # The reader's IANA timezone decides which calendar day a reading session
+  # falls on. Carried explicitly so the zone database ships with the app
+  # rather than depending on what the runtime image happens to install.
+  "tzdata>=2025.3",
+  # Pinned to a git tag; see [tool.uv.sources] at the end of this file. A
+  # runtime dependency since R4.1: the anchor service imports it at module
+  # scope and the container wires that service up, so it is loaded at startup.
+  "xpoint-cfi",
 ]
 
 [dependency-groups]
@@ -151,6 +159,7 @@ modules = [
     "src.domain.reading",
     "src.domain.reflection",
     "src.domain.tagging",
+    "src.domain.web_reader",
 ]
 
 [[tool.importlinter.contracts]]
@@ -226,3 +235,9 @@ also_copy = ["src/", "tests/"]
 # signal is trustworthy for anything the pure unit tests cover.
 timeout_constant = 20.0
 timeout_multiplier = 3.0
+
+# xpoint-cfi is the companion library that converts KOReader xpointers to
+# Readium locators (ADR-0004). It is not on PyPI, so it is pinned to a release
+# tag here; bumping it is a deliberate two-repo change, never a range.
+[tool.uv.sources]
+xpoint-cfi = { git = "https://github.com/Crossbill-App/xpoint-cfi.git", tag = "v0.1.0" }

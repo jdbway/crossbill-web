@@ -25,7 +25,7 @@ class SessionHighlightView:
     chapter_id: int | None
     text: str
     page: int | None
-    datetime: str
+    datetime: dt
     label: HighlightLabelView | None
     removed_from_devices: bool
     created_at: dt
@@ -34,13 +34,7 @@ class SessionHighlightView:
 
 @dataclass(frozen=True)
 class ReadingSessionView:
-    """One reading session as the list renders it.
-
-    ``content`` is the session's text read back out of the EPUB. It stays
-    ``None`` when the book has no EPUB, when the session recorded no position,
-    or when extraction fails -- a session that cannot be re-read is still a
-    session worth listing.
-    """
+    """One reading session as the list renders it."""
 
     id: int
     book_id: int
@@ -50,8 +44,6 @@ class ReadingSessionView:
     end_time: dt
     start_page: int | None
     end_page: int | None
-    content: str | None
-    ai_summary: str | None
     created_at: dt
     highlights: tuple[SessionHighlightView, ...]
 

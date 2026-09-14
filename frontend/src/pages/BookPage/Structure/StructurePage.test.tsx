@@ -1,14 +1,17 @@
 import { aBookDetails, aChapter } from '@tests/fixtures/book';
-import { aDigestHit } from '@tests/fixtures/semantic';
+import { aChapterDigest, aDigestQuestion } from '@tests/fixtures/digest';
+import { aNote } from '@tests/fixtures/notes';
+import { aDigestHit, aHighlightHit, aNoteHit } from '@tests/fixtures/search';
 import { renderApp } from '@tests/harness/renderApp';
-import { settingsWithEmbeddings } from '@tests/msw/auth';
+import { settingsWithAi, settingsWithEmbeddings } from '@tests/msw/auth';
 import { bookApi } from '@tests/msw/bookApi';
-import { semanticSearchApi } from '@tests/msw/semanticSearchApi';
+import { globalSearchApi, relatedContentApi } from '@tests/msw/searchApi';
 import { worker } from '@tests/msw/worker';
+import { http, HttpResponse } from 'msw';
 import { expect, test } from 'vitest';
 import { userEvent } from 'vitest/browser';
 
-const SEARCH_PLACEHOLDER = 'Search chapters by meaning…';
+const SEARCH_PLACEHOLDER = 'Search chapters by meaning...';
 
 /** Two parts, one leaf chapter each — enough to prove ancestors survive. */
 const aStructuredBook = () =>
@@ -28,7 +31,7 @@ const aStructuredBook = () =>
 const renderStructureWithAttentionMatch = async () => {
   worker.use(
     settingsWithEmbeddings(true),
-    ...semanticSearchApi({
+    ...globalSearchApi({
       attention: {
         digests: [
           aDigestHit({ chapter_id: 11, chapter_name: 'Attention and memory', score: 0.72 }),
@@ -128,7 +131,7 @@ const aBookWithReadingPosition = () =>
 test('a search reveals a deeply-nested match and leaves the current-chapter indicator on the true current chapter', async () => {
   worker.use(
     settingsWithEmbeddings(true),
-    ...semanticSearchApi({
+    ...globalSearchApi({
       deep: {
         digests: [
           aDigestHit({ chapter_id: 12, chapter_name: 'Deep Topic', score: 0.5 }),
@@ -186,7 +189,7 @@ test('a parent chapter opens from its title, and expands from its chevron', asyn
   await userEvent.click(screen.getByText('Part One'));
 
   await expect
-    .element(screen.getByRole('dialog').getByRole('tab', { name: 'Chapter review' }))
+    .element(screen.getByRole('dialog').getByRole('tab', { name: 'Questions' }))
     .toBeVisible();
   // The title must not double as a toggle: the branch stays open behind it.
   await expect.element(screen.getByText('Attention and memory')).toBeInTheDocument();
@@ -204,29 +207,41 @@ test('a link straight to a parent chapter opens its dialog', async () => {
   const screen = await renderApp({ path: '/book/1/structure?chapterId=10' });
 
   await expect
-    .element(screen.getByRole('dialog').getByRole('tab', { name: 'Chapter review' }))
+    .element(screen.getByRole('dialog').getByRole('tab', { name: 'Questions' }))
     .toBeVisible();
 });
 
-test('a match below the score cutoff counts as no match', async () => {
+/**
+ * One strip for the whole chapter, not one per tab.
+ *
+ * Cosine similarity is a single scale across the three content types, so the
+ * best matches for a chapter are simply the best matches; the scores here are
+ * deliberately interleaved across types, which three per-type strips could not
+ * show. The body also carries a score the old client-side floor would have
+ * dropped — the floor is the endpoint's now, and nothing filters here.
+ */
+test('related content renders as one ranking across every content type', async () => {
   worker.use(
     settingsWithEmbeddings(true),
-    ...semanticSearchApi({
-      quantum: {
-        digests: [
-          aDigestHit({ chapter_id: 11, chapter_name: 'Attention and memory', score: 0.12 }),
-        ],
-      },
+    ...relatedContentApi({
+      highlights: [aHighlightHit({ score: 0.71, text: 'A related highlight' })],
+      notes: [aNoteHit({ score: 0.83, title: 'A related note' })],
+      digests: [aDigestHit({ score: 0.5, chapter_id: 11, summary: 'A related chapter' })],
     }),
-    ...bookApi({ book: aStructuredBook() }).handlers
+    ...bookApi({ book: aStructuredBook(), digests: [aChapterDigest({ chapter_id: 10 })] }).handlers
   );
 
-  const screen = await renderApp({ path: '/book/1/structure' });
-  await userEvent.fill(screen.getByPlaceholder(SEARCH_PLACEHOLDER), 'quantum');
-  await userEvent.keyboard('{Enter}');
+  const screen = await renderApp({ path: '/book/1/structure?chapterId=10' });
 
-  await expect.element(screen.getByText(/No chapters match/)).toBeVisible();
-  expect(screen.getByText('Attention and memory').elements()).toHaveLength(0);
+  const strip = screen.getByRole('group', { name: 'Related' });
+  await expect.element(strip).toBeVisible();
+
+  const cards = strip.getByRole('listitem').elements();
+  expect(cards.map((card) => card.textContent)).toEqual([
+    expect.stringContaining('A related note'),
+    expect.stringContaining('A related highlight'),
+    expect.stringContaining('A related chapter'),
+  ]);
 });
 
 /**
@@ -255,7 +270,7 @@ test('closing a chapter dialog leaves the page where it was scrolled to', async 
 
   await userEvent.click(screen.getByText('Chapter 10'));
   await expect
-    .element(screen.getByRole('dialog').getByRole('tab', { name: 'Chapter review' }))
+    .element(screen.getByRole('dialog').getByRole('tab', { name: 'Questions' }))
     .toBeVisible();
 
   // Where the dialog's body-scroll lock parked the page, read rather than
@@ -271,4 +286,236 @@ test('closing a chapter dialog leaves the page where it was scrolled to', async 
   // scrolled away from it a frame later, which a poll would call a pass.
   await new Promise((resolve) => setTimeout(resolve, 400));
   expect(window.scrollY).toBe(parked);
+});
+
+/**
+ * A digest answer saves itself when the field is left, with nothing else on
+ * screen to say so — the reader had no way to know their answer was stored.
+ */
+test('a digest answer says it saved when the field is left', async () => {
+  worker.use(
+    settingsWithAi(true),
+    ...bookApi({
+      book: aStructuredBook(),
+      digests: [
+        aChapterDigest({
+          chapter_id: 11,
+          questions: [aDigestQuestion({ question: 'What makes attention a filter?' })],
+        }),
+      ],
+    }).handlers
+  );
+
+  const screen = await renderApp({ path: '/book/1/structure' });
+  await userEvent.click(screen.getByText('Attention and memory'));
+
+  const dialog = screen.getByRole('dialog');
+  const answer = dialog.getByPlaceholder('Write your answer...');
+  await expect.element(answer).toBeVisible();
+  expect(dialog.getByText('Saved').elements()).toHaveLength(0);
+
+  // The marker's space is reserved, so appearing must not push what is under
+  // it. Measured as the gap between the field and the next control rather than
+  // an absolute position, which the dialog's own scrolling would move.
+  const gapBelowField = () =>
+    dialog.getByRole('button', { name: 'Quiz me' }).element().getBoundingClientRect().top -
+    answer.element().getBoundingClientRect().bottom;
+  const restingGap = gapBelowField();
+
+  await userEvent.fill(answer, 'It drops what is not attended to.');
+  await userEvent.click(dialog.getByText('What makes attention a filter?'));
+
+  await expect.element(dialog.getByText('Saved')).toBeVisible();
+  expect(gapBelowField()).toBe(restingGap);
+
+  // And it clears itself again — the marker fades out rather than sticking.
+  await expect.element(dialog.getByText('Saved')).not.toBeInTheDocument();
+  expect(gapBelowField()).toBe(restingGap);
+});
+
+test('a chapter row counts its notes, like the dialog it opens', async () => {
+  worker.use(
+    ...bookApi({
+      book: aStructuredBook(),
+      notes: [
+        aNote({ id: 100, title: 'Attention as a filter', chapter_ids: [11] }),
+        aNote({ id: 101, title: 'Spotlight metaphor', chapter_ids: [11] }),
+        aNote({ id: 102, title: 'Unlinked', chapter_ids: [] }),
+      ],
+    }).handlers
+  );
+
+  const screen = await renderApp({ path: '/book/1/structure' });
+  await expect.element(screen.getByText('Attention and memory')).toBeVisible();
+
+  await expect.element(screen.getByRole('img', { name: '2 notes' })).toBeVisible();
+  // The note linked to no chapter is counted against none of them.
+  expect(screen.getByRole('img', { name: '3 notes' }).elements()).toHaveLength(0);
+  expect(screen.getByRole('img', { name: '1 note' }).elements()).toHaveLength(0);
+});
+
+test('the chapter dialog offers a copy-link, with or without AI', async () => {
+  worker.use(settingsWithAi(false), ...bookApi({ book: aStructuredBook() }).handlers);
+
+  const screen = await renderApp({ path: '/book/1/structure?chapterId=11' });
+  const dialog = screen.getByRole('dialog');
+
+  await expect.element(dialog.getByRole('button', { name: 'Copy link to chapter' })).toBeVisible();
+  // The generate button is the AI feature, not the toolbar it sits in.
+  expect(dialog.getByRole('button', { name: /Generate summary/ }).elements()).toHaveLength(0);
+});
+
+/**
+ * The tab used to return its empty message *instead of* the header, so a book
+ * with no chapter structure lost its title, its search field and the digest
+ * toolbar all at once.
+ */
+test('a book with no chapters keeps the structure header', async () => {
+  worker.use(...bookApi({ book: aBookDetails({ chapters: [] }) }).handlers);
+
+  const screen = await renderApp({ path: '/book/1/structure' });
+
+  await expect
+    .element(screen.getByText('No chapter structure available for this book.'))
+    .toBeVisible();
+  await expect.element(screen.getByRole('heading', { name: 'Structure' })).toBeVisible();
+});
+
+test('the structure toolbar confirms and requests replacing every summary', async () => {
+  const book = aBookDetails({
+    chapters: [
+      aChapter({ id: 10, name: 'Existing', start_position: { index: 0, char_index: 0 } }),
+      aChapter({ id: 20, name: 'Missing', start_position: { index: 1, char_index: 0 } }),
+    ],
+  });
+  let overwriteExisting: string | null | undefined;
+
+  worker.use(
+    settingsWithAi(true),
+    ...bookApi({
+      book,
+      digests: [
+        aChapterDigest({
+          chapter_id: 10,
+          questions: [aDigestQuestion({ user_answer: 'My saved answer' })],
+        }),
+      ],
+    }).handlers,
+    http.post('/api/v1/jobs/books/:bookId/digest', ({ request }) => {
+      overwriteExisting = new URL(request.url).searchParams.get('overwrite_existing');
+      return HttpResponse.json(
+        {
+          id: 70,
+          batch_type: 'chapter_digest',
+          reference_id: '1',
+          total_jobs: 2,
+          completed_jobs: 0,
+          failed_jobs: 0,
+          status: 'pending',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-01T00:00:00Z',
+        },
+        { status: 202 }
+      );
+    }),
+    http.get('/api/v1/jobs/batches/:batchId', () =>
+      HttpResponse.json({
+        id: 70,
+        batch_type: 'chapter_digest',
+        reference_id: '1',
+        total_jobs: 2,
+        completed_jobs: 2,
+        failed_jobs: 0,
+        status: 'completed',
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:01:00Z',
+      })
+    )
+  );
+
+  const screen = await renderApp({ path: '/book/1/structure' });
+  const generateMissing = screen.getByRole('button', { name: 'Generate missing summaries' });
+  const moreActions = screen.getByRole('button', { name: 'More summary actions' });
+  await expect.element(generateMissing).toBeEnabled();
+  await expect.element(moreActions).toBeEnabled();
+
+  await userEvent.click(moreActions);
+  await userEvent.click(screen.getByRole('menuitem', { name: 'Regenerate all summaries' }));
+
+  const confirmation = screen.getByRole('alertdialog');
+  await expect
+    .element(confirmation.getByText(/replace 1 existing.*generate 1 missing/i))
+    .toBeVisible();
+  await expect.element(confirmation.getByText(/saved answers.*deleted/i)).toBeVisible();
+  expect(overwriteExisting).toBeUndefined();
+
+  await userEvent.click(confirmation.getByRole('button', { name: 'Regenerate all' }));
+  await expect.poll(() => overwriteExisting).toBe('true');
+});
+
+test('summary actions are disabled when they have nothing to do', async () => {
+  worker.use(
+    settingsWithAi(true),
+    ...bookApi({
+      book: aBookDetails({
+        chapters: [
+          aChapter({ id: 10, start_position: { index: 0, char_index: 0 } }),
+          aChapter({ id: 20, start_position: null }),
+        ],
+      }),
+      digests: [aChapterDigest({ chapter_id: 10 })],
+    }).handlers
+  );
+
+  const screen = await renderApp({ path: '/book/1/structure' });
+  await expect
+    .element(screen.getByRole('button', { name: 'Generate missing summaries' }))
+    .toBeDisabled();
+  await expect.element(screen.getByRole('button', { name: 'More summary actions' })).toBeEnabled();
+});
+
+test('regenerate is unavailable before the book has a summary', async () => {
+  worker.use(
+    settingsWithAi(true),
+    ...bookApi({
+      book: aBookDetails({
+        chapters: [aChapter({ id: 10, start_position: { index: 0, char_index: 0 } })],
+      }),
+    }).handlers
+  );
+
+  const screen = await renderApp({ path: '/book/1/structure' });
+  await expect
+    .element(screen.getByRole('button', { name: 'Generate missing summaries' }))
+    .toBeEnabled();
+  await expect.element(screen.getByRole('button', { name: 'More summary actions' })).toBeDisabled();
+});
+
+test('regenerating one chapter warns before replacing its questions and answers', async () => {
+  let requested = false;
+  const digest = aChapterDigest({
+    chapter_id: 11,
+    questions: [aDigestQuestion({ user_answer: 'My saved answer' })],
+  });
+  worker.use(
+    settingsWithAi(true),
+    ...bookApi({ book: aStructuredBook(), digests: [digest] }).handlers,
+    http.post('/api/v1/chapters/:chapterId/digest/generate', () => {
+      requested = true;
+      return HttpResponse.json(digest);
+    })
+  );
+
+  const screen = await renderApp({ path: '/book/1/structure?chapterId=11' });
+  await userEvent.click(
+    screen.getByRole('dialog').getByRole('button', { name: 'Regenerate summary and questions' })
+  );
+
+  const confirmation = screen.getByRole('alertdialog');
+  await expect.element(confirmation.getByText(/summary, key points, and questions/i)).toBeVisible();
+  await expect.element(confirmation.getByText(/saved answers.*deleted/i)).toBeVisible();
+  expect(requested).toBe(false);
+
+  await userEvent.click(confirmation.getByRole('button', { name: 'Regenerate' }));
+  await expect.poll(() => requested).toBe(true);
 });

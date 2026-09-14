@@ -24,9 +24,6 @@ from src.application.reading.commands.highlights.highlight_delete_use_case impor
 from src.application.reading.commands.highlights.highlight_upload_use_case import (
     HighlightUploadUseCase,
 )
-from src.application.reading.commands.reading_sessions.reading_session_ai_summary_use_case import (
-    ReadingSessionAISummaryUseCase,
-)
 from src.application.reading.commands.reading_sessions.reading_session_upload_use_case import (
     ReadingSessionUploadUseCase,
 )
@@ -51,6 +48,9 @@ from src.application.reading.queries.get_book_highlight_labels_use_case import (
 from src.application.reading.queries.get_book_reading_sessions_use_case import (
     ReadingSessionQueryUseCase,
 )
+from src.application.reading.queries.get_book_statistics_use_case import (
+    GetBookStatisticsUseCase,
+)
 from src.application.reading.queries.get_bookmarks_use_case import (
     GetBookmarksUseCase,
 )
@@ -66,6 +66,10 @@ from src.application.reading.queries.get_ereader_book_highlights_use_case import
 from src.application.reading.queries.get_global_highlight_labels_use_case import (
     GetGlobalHighlightLabelsUseCase,
 )
+from src.application.reading.queries.get_library_reading_activity_use_case import (
+    GetLibraryReadingActivityUseCase,
+)
+from src.application.reading.queries.get_recent_captures_use_case import GetRecentCapturesUseCase
 from src.application.reading.queries.highlight_search_use_case import (
     HighlightSearchUseCase,
 )
@@ -87,12 +91,16 @@ class ReadingContainer(containers.DeclarativeContainer):
     highlight_deduplication_service = providers.Dependency()
     label_resolution_service = providers.Dependency()
     epub_position_index_service = providers.Dependency()
+    position_anchor_service = providers.Dependency()
     ebook_text_extraction_service = providers.Dependency()
     ai_service = providers.Dependency()
     embedding_enqueuer = providers.Dependency()
     embedding_repository = providers.Dependency()
 
     # Query services (read models)
+    book_statistics_query = providers.Dependency()
+    library_reading_activity_query = providers.Dependency()
+    recent_captures_query = providers.Dependency()
     bookmark_query = providers.Dependency()
     highlight_label_query = providers.Dependency()
     highlight_search_query = providers.Dependency()
@@ -135,6 +143,7 @@ class ReadingContainer(containers.DeclarativeContainer):
         chapter_repository=chapter_repository,
         deduplication_service=highlight_deduplication_service,
         position_index_service=epub_position_index_service,
+        position_anchor_service=position_anchor_service,
         file_repository=file_repository,
         highlight_style_repository=highlight_style_repository,
         embedding_enqueuer=embedding_enqueuer,
@@ -184,19 +193,24 @@ class ReadingContainer(containers.DeclarativeContainer):
         book_repository=book_repository,
         highlight_repository=highlight_repository,
         position_index_service=epub_position_index_service,
+        position_anchor_service=position_anchor_service,
         file_repository=file_repository,
     )
     reading_session_query_use_case = providers.Factory(
         ReadingSessionQueryUseCase,
         reading_session_query=reading_session_query,
     )
-    reading_session_ai_summary_use_case = providers.Factory(
-        ReadingSessionAISummaryUseCase,
-        session_repository=reading_session_repository,
-        text_extraction_service=ebook_text_extraction_service,
-        book_repo=book_repository,
-        file_repo=file_repository,
-        ai_summary_service=ai_service,
+    get_book_statistics_use_case = providers.Factory(
+        GetBookStatisticsUseCase,
+        book_statistics_query=book_statistics_query,
+    )
+    get_library_reading_activity_use_case = providers.Factory(
+        GetLibraryReadingActivityUseCase,
+        library_reading_activity_query=library_reading_activity_query,
+    )
+    get_recent_captures_use_case = providers.Factory(
+        GetRecentCapturesUseCase,
+        recent_captures_query=recent_captures_query,
     )
 
     # Chapter digest

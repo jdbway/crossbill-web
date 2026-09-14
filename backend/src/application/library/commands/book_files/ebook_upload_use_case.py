@@ -13,6 +13,13 @@ from src.application.reading.protocols.highlight_repository import HighlightRepo
 from src.application.reading.protocols.reading_session_repository import (
     ReadingSessionRepositoryProtocol,
 )
+from src.application.web_reader.commands.backfill_book_locators_use_case import (
+    BackfillBookLocatorsUseCase,
+)
+from src.application.web_reader.protocols.publication_parser import PublicationParserProtocol
+from src.application.web_reader.protocols.publication_repository import (
+    PublicationRepositoryProtocol,
+)
 from src.domain.common.value_objects.ids import BookId, UserId
 from src.domain.common.value_objects.position import Position
 from src.domain.common.value_objects.position_index import PositionIndex
@@ -36,6 +43,9 @@ class EbookUploadUseCase:
         position_index_service: PositionIndexServiceProtocol,
         highlight_repository: HighlightRepositoryProtocol,
         session_repository: ReadingSessionRepositoryProtocol,
+        publication_parser: PublicationParserProtocol,
+        publication_repository: PublicationRepositoryProtocol,
+        backfill_book_locators_use_case: BackfillBookLocatorsUseCase,
     ) -> None:
         """
         Initialize use case with dependencies.
@@ -49,6 +59,9 @@ class EbookUploadUseCase:
             position_index_service: Service for building position indices from EPUBs
             highlight_repository: Repository for highlight persistence
             session_repository: Repository for reading session persistence
+            publication_parser: Resolves an EPUB into the web reader's index
+            publication_repository: Stores that index beside the book
+            backfill_book_locators_use_case: Rewrites the book's derived Locators
         """
         self.book_repository = book_repository
         self.chapter_repository = chapter_repository
@@ -58,6 +71,9 @@ class EbookUploadUseCase:
         self.position_index_service = position_index_service
         self.highlight_repository = highlight_repository
         self.session_repository = session_repository
+        self.publication_parser = publication_parser
+        self.publication_repository = publication_repository
+        self._backfill_book_locators_use_case = backfill_book_locators_use_case
 
     async def upload_ebook(
         self,
@@ -133,6 +149,8 @@ class EbookUploadUseCase:
 
         await self.book_repository.save(book)
 
+        await self._derive_publication(book.id, epub_filename, content)
+
         # Parse TOC and sync chapters (with positions)
         toc_chapters = self.epub_parser.parse_toc(content)
         if toc_chapters:
@@ -158,6 +176,26 @@ class EbookUploadUseCase:
 
         # Backfill positions for existing entities
         await self._backfill_positions(book.id, user_id, position_index)
+
+        # The file is what a locator was derived against, so a new one restates
+        # every locator of the book -- whether or not the publication index took.
+        await self._backfill_book_locators_use_case.backfill_book_locators(
+            book.id, user_id, content
+        )
+
+    async def _derive_publication(self, book_id: BookId, file_name: str, content: bytes) -> None:
+        """Store the web reader's index of the uploaded EPUB, or drop a stale one.
+
+        Nothing here may fail the upload: ``/ereader/*`` is the plugin's only
+        route, and a missing index is derived again by the first read that
+        needs one.
+        """
+        try:
+            publication = self.publication_parser.parse_publication(content)
+            await self.publication_repository.save(book_id, file_name, publication)
+        except Exception:
+            logger.exception("Failed to derive a publication index for book %s", book_id.value)
+            await self.publication_repository.delete(book_id)
 
     async def _extract_and_save_cover(
         self,

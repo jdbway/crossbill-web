@@ -29,24 +29,17 @@ from src.application.library.protocols.book_repository import (
     BookRepositoryProtocol as LibraryBookRepositoryProtocol,
 )
 from src.application.library.protocols.chapter_repository import ChapterRepositoryProtocol
-from src.application.library.protocols.file_repository import FileRepositoryProtocol
 from src.application.library.queries.book_details import BookDetailsQueryProtocol
 from src.application.library.queries.book_list import BookListQueryProtocol
 from src.application.notes.protocols.note_repository import NoteRepositoryProtocol
 from src.application.notes.queries.note_with_links import NoteQueryProtocol
 from src.application.reading.protocols.ai_digest_service import AIDigestServiceProtocol
-from src.application.reading.protocols.ai_text_summary_service import (
-    AITextSummaryServiceProtocol,
-)
 from src.application.reading.protocols.book_repository import (
     BookRepositoryProtocol as ReadingBookRepositoryProtocol,
 )
 from src.application.reading.protocols.bookmark_repository import BookmarkRepositoryProtocol
 from src.application.reading.protocols.chapter_digest_repository import (
     ChapterDigestRepositoryProtocol,
-)
-from src.application.reading.protocols.ebook_text_extraction_service import (
-    EbookTextExtractionServiceProtocol,
 )
 from src.application.reading.protocols.highlight_repository import HighlightRepositoryProtocol
 from src.application.reading.protocols.highlight_style_repository import (
@@ -55,16 +48,35 @@ from src.application.reading.protocols.highlight_style_repository import (
 from src.application.reading.protocols.reading_session_repository import (
     ReadingSessionRepositoryProtocol,
 )
+from src.application.reading.queries.book_statistics import BookStatisticsQueryProtocol
 from src.application.reading.queries.bookmarks import BookmarkQueryProtocol
 from src.application.reading.queries.ereader_digest import EreaderDigestQueryProtocol
 from src.application.reading.queries.highlight_labels import HighlightLabelQueryProtocol
 from src.application.reading.queries.highlight_search import HighlightSearchQueryProtocol
+from src.application.reading.queries.library_reading_activity import (
+    LibraryReadingActivityQueryProtocol,
+)
 from src.application.reading.queries.reading_sessions import ReadingSessionQueryProtocol
 from src.application.reading.services.label_resolution_service import LabelResolutionService
 from src.application.reflection.protocols.book_reflection_repository import (
     BookReflectionRepositoryProtocol,
 )
 from src.application.tagging.protocols.tag_repository import TagRepositoryProtocol
+from src.application.web_reader.protocols.web_reading_position_repository import (
+    WebReadingPositionRepositoryProtocol,
+)
+from src.domain.reading.services.library_reading_activity_calculator import (
+    LibraryReadingActivityCalculator,
+)
+from src.domain.reading.services.library_reading_stats_calculator import (
+    LibraryReadingStatsCalculator,
+)
+from src.domain.reading.services.reading_activity_calculator import (
+    ReadingActivityCalculator,
+)
+from src.domain.reading.services.reading_statistics_calculator import (
+    ReadingStatisticsCalculator,
+)
 from src.infrastructure.ai.ai_service import AIService
 from src.infrastructure.ai.repositories.ai_usage_repository import AIUsageRepository
 from src.infrastructure.identity.repositories.refresh_token_repository import (
@@ -85,10 +97,14 @@ from src.infrastructure.library.repositories import BookRepository
 from src.infrastructure.library.repositories.chapter_repository import ChapterRepository
 from src.infrastructure.notes.queries.note_query import NoteQuery
 from src.infrastructure.notes.repositories.note_repository import NoteRepository
+from src.infrastructure.reading.queries.book_statistics_query import BookStatisticsQuery
 from src.infrastructure.reading.queries.bookmark_query import BookmarkQuery
 from src.infrastructure.reading.queries.ereader_digest_query import EreaderDigestQuery
 from src.infrastructure.reading.queries.highlight_label_query import HighlightLabelQuery
 from src.infrastructure.reading.queries.highlight_search_query import HighlightSearchQuery
+from src.infrastructure.reading.queries.library_reading_activity_query import (
+    LibraryReadingActivityQuery,
+)
 from src.infrastructure.reading.queries.reading_session_query import ReadingSessionQuery
 from src.infrastructure.reading.repositories import (
     BookmarkRepository,
@@ -105,13 +121,14 @@ from src.infrastructure.reflection.repositories.book_reflection_repository impor
     BookReflectionRepository,
 )
 from src.infrastructure.tagging.repositories import TagRepository
+from src.infrastructure.web_reader.repositories.web_reading_position_repository import (
+    WebReadingPositionRepository,
+)
 
 
 def repositories_satisfy_their_protocols(
     db: AsyncSession,
     label_resolution_service: LabelResolutionService,
-    file_repository: FileRepositoryProtocol,
-    text_extraction_service: EbookTextExtractionServiceProtocol,
 ) -> None:
     _user: UserRepositoryProtocol = UserRepository(db)
     _refresh_token: RefreshTokenRepositoryProtocol = RefreshTokenRepository(db)
@@ -146,16 +163,24 @@ def repositories_satisfy_their_protocols(
         db, label_resolution_service
     )
     _reading_sessions_view: ReadingSessionQueryProtocol = ReadingSessionQuery(
-        db, label_resolution_service, file_repository, text_extraction_service
+        db, label_resolution_service
     )
+    _book_statistics_view: BookStatisticsQueryProtocol = BookStatisticsQuery(
+        db, ReadingStatisticsCalculator(activity_calculator=ReadingActivityCalculator())
+    )
+    _library_activity_view: LibraryReadingActivityQueryProtocol = LibraryReadingActivityQuery(
+        db,
+        LibraryReadingActivityCalculator(activity_calculator=ReadingActivityCalculator()),
+        LibraryReadingStatsCalculator(),
+    )
+    _web_reading_position: WebReadingPositionRepositoryProtocol = WebReadingPositionRepository(db)
 
 
 def ai_service_satisfies_its_protocols(db: AsyncSession) -> None:
-    """``AIService`` implements five protocols and is wired through none of them."""
+    """``AIService`` implements four protocols and is wired through none of them."""
     _usage: AIUsageRepositoryProtocol = AIUsageRepository(db=db)
     service = AIService(usage_repository=AIUsageRepository(db=db))
     _digest: AIDigestServiceProtocol = service
     _quiz: AIQuizServiceProtocol = service
     _chat: AIChatServiceProtocol = service
     _flashcards: AIFlashcardServiceProtocol = service
-    _summary: AITextSummaryServiceProtocol = service

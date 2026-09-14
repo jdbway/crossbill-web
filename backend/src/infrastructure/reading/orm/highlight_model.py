@@ -1,9 +1,19 @@
 """SQLAlchemy ORM model for highlights."""
 
 from datetime import datetime as dt
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, UniqueConstraint, func
+from sqlalchemy import (
+    DateTime,
+    ForeignKey,
+    Index,
+    SmallInteger,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
+from sqlalchemy.dialects.postgresql import JSONB as PG_JSONB
 from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
@@ -45,13 +55,19 @@ class Highlight(Base):
     start_xpoint: Mapped[str | None] = mapped_column(Text, nullable=True)
     end_xpoint: Mapped[str | None] = mapped_column(Text, nullable=True)
     position: Mapped[list[int] | None] = mapped_column(JSON, nullable=True)
+    locator: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON().with_variant(PG_JSONB, "postgresql"), nullable=True
+    )
+    locator_confidence: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    locator_source_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     highlight_style_id: Mapped[int | None] = mapped_column(
         ForeignKey("highlight_styles.id", ondelete="SET NULL"), index=True, nullable=True
     )
-    datetime: Mapped[str] = mapped_column(String(50), nullable=False)  # KOReader datetime string
-    koreader_updated_at: Mapped[str | None] = mapped_column(
-        String(50), nullable=True
-    )  # KOReader datetime string of the last edit on the device
+    # The e-reader's own wall clock, with no offset to attach it to an instant.
+    datetime: Mapped[dt] = mapped_column(DateTime(timezone=False), nullable=False)
+    koreader_updated_at: Mapped[dt | None] = mapped_column(
+        DateTime(timezone=False), nullable=True
+    )  # Device-side time of the last edit on the device
     koreader_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     origin_device_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     content_hash: Mapped[str] = mapped_column(
@@ -97,6 +113,12 @@ class Highlight(Base):
     # Unique constraint for deduplication: same content hash within same book
     __table_args__ = (
         UniqueConstraint("user_id", "book_id", "content_hash", name="uq_highlight_content_hash"),
+        Index(
+            "ix_highlights_user_id_datetime",
+            "user_id",
+            "datetime",
+            postgresql_ops={"datetime": "DESC"},
+        ),
     )
 
     def __repr__(self) -> str:

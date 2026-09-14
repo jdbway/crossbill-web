@@ -1,4 +1,5 @@
 import { EmptyStateText } from '@/components/EmptyStateText.tsx';
+import { GLOBAL_SEARCH_INSET_X } from '@/components/search/globalSearchLayout.ts';
 import { GlobalSearchResultRow } from '@/components/search/GlobalSearchResultRow.tsx';
 import {
   MAX_GLOBAL_SEARCH_ROWS,
@@ -33,7 +34,7 @@ export const GlobalSearchResults = ({
 }: GlobalSearchResultsProps) => {
   if (isError) {
     return (
-      <Box sx={{ p: 2 }}>
+      <Box sx={{ px: GLOBAL_SEARCH_INSET_X, py: 2.5 }}>
         <Typography variant="body2" color="error">
           Search failed. Try again.
         </Typography>
@@ -43,7 +44,7 @@ export const GlobalSearchResults = ({
 
   if (isFetching && rows.length === 0) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
         <CircularProgress size={24} aria-label="Searching" />
       </Box>
     );
@@ -51,11 +52,14 @@ export const GlobalSearchResults = ({
 
   if (rows.length === 0) {
     return (
-      <Box sx={{ p: 2 }}>
+      <Box sx={{ px: GLOBAL_SEARCH_INSET_X, py: 2.5 }}>
         <EmptyStateText>No matches</EmptyStateText>
       </Box>
     );
   }
+
+  // Only the ranked rows are capped; book rows ride above them.
+  const rankedRowCount = rows.filter((row) => row.type !== 'book').length;
 
   return (
     <Box>
@@ -71,8 +75,12 @@ export const GlobalSearchResults = ({
           />
         ))}
       </List>
-      {rows.length === MAX_GLOBAL_SEARCH_ROWS && (
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', p: 1.5 }}>
+      {rankedRowCount === MAX_GLOBAL_SEARCH_ROWS && (
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          sx={{ display: 'block', px: GLOBAL_SEARCH_INSET_X, py: 2 }}
+        >
           Showing top {MAX_GLOBAL_SEARCH_ROWS}
         </Typography>
       )}

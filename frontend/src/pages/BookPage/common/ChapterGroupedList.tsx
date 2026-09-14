@@ -1,4 +1,3 @@
-import { FadeInOut } from '@/components/animations/FadeInOut.tsx';
 import { CardList } from '@/components/CardList.tsx';
 import { EmptyStateText } from '@/components/EmptyStateText.tsx';
 import { SectionTitle } from '@/components/typography/SectionTitle.tsx';
@@ -12,11 +11,12 @@ interface ChapterGroupedListProps<TChapter, TItem> {
   getItems: (chapter: TChapter) => TItem[];
   getItemKey: (item: TItem) => number | string;
   renderItem: (item: TItem) => ReactNode;
-  /** Builds the CardList aria-label from the chapter name. */
-  ariaLabel: (chapterName: string) => string;
+  /** Builds the CardList aria-label. Takes the chapter, not just its name, so
+   *  a group that is not a chapter can name itself differently. */
+  ariaLabel: (chapter: TChapter) => string;
   isLoading?: boolean;
-  emptyMessage?: string;
-  animationKey?: string;
+  /** Shown in place of the list when there is no chapter to show. */
+  emptyState?: ReactNode;
   /** Extra styles merged onto each chapter's CardList. */
   cardListSx?: SxProps<Theme>;
   /** Rendered in place of the card list when a chapter has no items. */
@@ -24,10 +24,10 @@ interface ChapterGroupedListProps<TChapter, TItem> {
 }
 
 /**
- * Generic chapter-grouped list: an optional "Searching…" loading state, a
- * fade-in wrapper, an empty-message branch, then a `SectionTitle` + `CardList`
- * per chapter. Shared by the highlights and flashcards tabs, which differ only
- * in the item card and a couple of presentational knobs.
+ * Generic chapter-grouped list: an optional "Searching..." loading state, an
+ * empty-state branch, then a `SectionTitle` + `CardList` per chapter. Shared by
+ * the highlights and flashcards tabs, which differ only in the item card and a
+ * couple of presentational knobs.
  */
 export const ChapterGroupedList = <TChapter, TItem>({
   chapters,
@@ -38,8 +38,7 @@ export const ChapterGroupedList = <TChapter, TItem>({
   renderItem,
   ariaLabel,
   isLoading,
-  emptyMessage = 'No chapters found.',
-  animationKey = 'chapters',
+  emptyState = <EmptyStateText>No chapters found.</EmptyStateText>,
   cardListSx,
   renderEmptyChapter,
 }: ChapterGroupedListProps<TChapter, TItem>) => {
@@ -59,12 +58,10 @@ export const ChapterGroupedList = <TChapter, TItem>({
   }
 
   return (
-    <FadeInOut ekey={animationKey}>
-      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        {chapters.length === 0 ? (
-          <EmptyStateText>{emptyMessage}</EmptyStateText>
-        ) : (
-          chapters.map((chapter) => {
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      {chapters.length === 0
+        ? emptyState
+        : chapters.map((chapter) => {
             const chapterId = getChapterId(chapter);
             const chapterName = getChapterName(chapter);
             const items = getItems(chapter);
@@ -76,7 +73,7 @@ export const ChapterGroupedList = <TChapter, TItem>({
                 {items.length === 0 && renderEmptyChapter ? (
                   renderEmptyChapter()
                 ) : (
-                  <CardList sx={cardListSx} aria-label={ariaLabel(chapterName)}>
+                  <CardList sx={cardListSx} aria-label={ariaLabel(chapter)}>
                     {items.map((item) => (
                       <li key={getItemKey(item)}>{renderItem(item)}</li>
                     ))}
@@ -84,9 +81,7 @@ export const ChapterGroupedList = <TChapter, TItem>({
                 )}
               </Box>
             );
-          })
-        )}
-      </Box>
-    </FadeInOut>
+          })}
+    </Box>
   );
 };

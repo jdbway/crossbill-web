@@ -1,6 +1,7 @@
-"""Read model for the grouped semantic-search response.
+"""Read model for the grouped response both ranked reads share.
 
-Both reads that rank the index -- /search and /related -- hydrate through here.
+Both reads that rank the index -- global search and /semantic/related -- hydrate
+through here.
 These views read each source module's own display columns rather than the
 *embedding input*, which is text truncated at ``MAX_EMBEDDABLE_CHARS`` and
 lossily concatenated, and so cannot render a note's title as a title.
@@ -17,8 +18,9 @@ These are view DTOs, not domain entities: they exist to be rendered and must
 never be fed back into a command. See ``docs/adr/0001-read-models-and-query-services.md``.
 """
 
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import datetime as dt
 from typing import Protocol
 
 from src.application.semantic.content_type import ContentType
@@ -36,6 +38,17 @@ class BookRef:
 
 
 @dataclass(frozen=True)
+class BookSearchView:
+    """A book matched by its own title or author, so it carries no similarity score."""
+
+    id: int
+    title: str
+    author: str | None
+    cover_file: str | None
+    cover_blurhash: str | None
+
+
+@dataclass(frozen=True)
 class HighlightSearchView:
     """A matched highlight, with what a highlight list row shows."""
 
@@ -48,7 +61,7 @@ class HighlightSearchView:
     chapter_number: int | None
     text: str
     page: int | None
-    datetime: str
+    datetime: dt
     cover_file: str | None
     cover_blurhash: str | None
 
@@ -87,12 +100,25 @@ class DigestSearchView:
 
 
 @dataclass(frozen=True)
-class SemanticSearchResultsView:
-    """One search's matches, grouped by content type, each group most similar first."""
+class RankedContentGroupsView:
+    """Ranked matches from the index, grouped by content type, most similar first.
+
+    What hydration produces, and the whole of what ``/semantic/related``
+    answers. Global search extends it rather than the other way round: books
+    matched by name are not ranked against these groups and belong to that read
+    alone.
+    """
 
     highlights: tuple[HighlightSearchView, ...]
     notes: tuple[NoteSearchView, ...]
     digests: tuple[DigestSearchView, ...]
+
+
+@dataclass(frozen=True)
+class GlobalSearchResultsView(RankedContentGroupsView):
+    """Global search's answer: the ranked groups plus books matched by name."""
+
+    books: tuple[BookSearchView, ...]
 
 
 class SearchHydrationQueryProtocol(Protocol):
@@ -123,20 +149,41 @@ class SearchHydrationQueryProtocol(Protocol):
         ...
 
 
+async def hydrate_by_content_type(
+    page: Mapping[ContentType, Sequence[SemanticSearchHit]],
+    hydration: SearchHydrationQueryProtocol,
+    user_id: int,
+) -> RankedContentGroupsView:
+    """Resolve an already-chosen page, one hydration query per content type.
+
+    Both ranked reads end here. ``/related`` calls it directly because it cannot
+    hydrate a type until every type has been ranked -- its per-book cap is gated
+    on the whole neighbourhood, not on one group at a time.
+    """
+    return RankedContentGroupsView(
+        highlights=await hydration.highlights(page[ContentType.HIGHLIGHT], user_id),
+        notes=await hydration.notes(page[ContentType.NOTE], user_id),
+        digests=await hydration.digests(page[ContentType.DIGEST], user_id),
+    )
+
+
 async def group_by_content_type(
     scan: Callable[[ContentType], Awaitable[Sequence[SemanticSearchHit]]],
     hydration: SearchHydrationQueryProtocol,
     user_id: int,
-) -> SemanticSearchResultsView:
+) -> RankedContentGroupsView:
     """Scan the index once per content type and hydrate each group on its own.
 
-    Both ranked reads end this way -- what differs is only how ``scan`` builds
-    its query. One scan per type rather than one combined scan: a book with
-    thousands of highlights would otherwise fill a single ranked page and the
-    digests would never appear.
+    One scan per type rather than one combined scan: a book with thousands of
+    highlights would otherwise fill a single ranked page and the digests would
+    never appear.
     """
-    return SemanticSearchResultsView(
-        highlights=await hydration.highlights(await scan(ContentType.HIGHLIGHT), user_id),
-        notes=await hydration.notes(await scan(ContentType.NOTE), user_id),
-        digests=await hydration.digests(await scan(ContentType.DIGEST), user_id),
+    return await hydrate_by_content_type(
+        {
+            ContentType.HIGHLIGHT: await scan(ContentType.HIGHLIGHT),
+            ContentType.NOTE: await scan(ContentType.NOTE),
+            ContentType.DIGEST: await scan(ContentType.DIGEST),
+        },
+        hydration,
+        user_id,
     )

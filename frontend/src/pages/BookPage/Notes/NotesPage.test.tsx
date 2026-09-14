@@ -1,10 +1,10 @@
 import { aBookDetails } from '@tests/fixtures/book';
 import { aNote } from '@tests/fixtures/notes';
-import { aNoteHit } from '@tests/fixtures/semantic';
+import { aNoteHit } from '@tests/fixtures/search';
 import { renderApp } from '@tests/harness/renderApp';
 import { settingsWithEmbeddings } from '@tests/msw/auth';
 import { bookApi } from '@tests/msw/bookApi';
-import { semanticSearchApi } from '@tests/msw/semanticSearchApi';
+import { globalSearchApi } from '@tests/msw/searchApi';
 import { worker } from '@tests/msw/worker';
 import { http, HttpResponse } from 'msw';
 import { expect, test } from 'vitest';
@@ -12,7 +12,7 @@ import { userEvent } from 'vitest/browser';
 
 type Screen = Awaited<ReturnType<typeof renderApp>>;
 
-const NOTES_SEARCH_PLACEHOLDER = 'Search notes by meaning…';
+const NOTES_SEARCH_PLACEHOLDER = 'Search notes by meaning...';
 
 const openNoteForEditing = async (screen: Screen, title: string) => {
   await userEvent.click(screen.getByRole('button', { name: new RegExp(title) }));
@@ -86,7 +86,7 @@ test('searching notes lists only the notes on this page that matched', async () 
   const { handlers } = aTwoNoteBook();
   worker.use(
     settingsWithEmbeddings(true),
-    ...semanticSearchApi({
+    ...globalSearchApi({
       engines: {
         notes: [
           aNoteHit({ id: 101, title: 'Difference Engine', score: 0.71 }),
@@ -112,16 +112,29 @@ test('searching notes lists only the notes on this page that matched', async () 
   expect(screen.getByRole('heading', { name: 'Analytical Engine' }).elements()).toHaveLength(0);
 });
 
-test('a query that matches none of the notes on this page shows the search empty state', async () => {
+test('with embeddings off, the notes tab neither offers nor applies a search', async () => {
   const { handlers } = aTwoNoteBook();
-  worker.use(
-    settingsWithEmbeddings(true),
-    // Unlisted query → every group comes back empty, i.e. nothing matched.
-    ...semanticSearchApi({ underwater: {} }),
-    ...handlers
-  );
+  worker.use(settingsWithEmbeddings(false), ...handlers);
 
-  const screen = await renderApp({ path: '/book/1/notes' });
+  const screen = await renderApp({ path: '/book/1/notes?search=engines' });
+
+  await expect.element(screen.getByPlaceholder(NOTES_SEARCH_PLACEHOLDER)).not.toBeInTheDocument();
+  await expect.element(screen.getByRole('heading', { name: 'Ada Lovelace' })).toBeVisible();
+  await expect.element(screen.getByRole('heading', { name: 'Difference Engine' })).toBeVisible();
+});
+
+/**
+ * The two-note book with an embedding search that matches nothing: "underwater"
+ * is unlisted, so every group comes back empty.
+ */
+const renderNotesMatchingNothing = async () => {
+  const { handlers } = aTwoNoteBook();
+  worker.use(settingsWithEmbeddings(true), ...globalSearchApi({ underwater: {} }), ...handlers);
+  return renderApp({ path: '/book/1/notes' });
+};
+
+test('a query that matches none of the notes on this page shows the search empty state', async () => {
+  const screen = await renderNotesMatchingNothing();
   await expect.element(screen.getByRole('heading', { name: 'Ada Lovelace' })).toBeVisible();
 
   await userEvent.fill(screen.getByPlaceholder(NOTES_SEARCH_PLACEHOLDER), 'underwater');
@@ -142,7 +155,7 @@ test('a failed search reports the error and keeps every note listed', async () =
   });
   worker.use(
     settingsWithEmbeddings(true),
-    http.get('/api/v1/semantic/search', () => new HttpResponse(null, { status: 500 })),
+    http.get('/api/v1/search', () => new HttpResponse(null, { status: 500 })),
     ...handlers
   );
 
@@ -154,4 +167,18 @@ test('a failed search reports the error and keeps every note listed', async () =
     .element(screen.getByRole('alert').filter({ hasText: 'Search failed' }))
     .toBeVisible();
   await expect.element(screen.getByRole('heading', { name: 'Ada Lovelace' })).toBeVisible();
+});
+
+test('clearing the filters from the empty state brings the notes back', async () => {
+  const screen = await renderNotesMatchingNothing();
+  await userEvent.fill(screen.getByPlaceholder(NOTES_SEARCH_PLACEHOLDER), 'underwater');
+  await userEvent.keyboard('{Enter}');
+  await expect.element(screen.getByText('No notes match the current filters.')).toBeVisible();
+
+  await userEvent.click(screen.getByRole('button', { name: 'Clear filters' }));
+
+  await expect.element(screen.getByRole('heading', { name: 'Ada Lovelace' })).toBeVisible();
+  await expect.element(screen.getByRole('heading', { name: 'Difference Engine' })).toBeVisible();
+  // The query is gone from the field too, not just from the results.
+  await expect.element(screen.getByPlaceholder(NOTES_SEARCH_PLACEHOLDER)).toHaveValue('');
 });

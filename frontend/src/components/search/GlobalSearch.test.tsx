@@ -1,44 +1,51 @@
 import { aBookDetails, aChapter, aHighlight } from '@tests/fixtures/book';
 import { aNote } from '@tests/fixtures/notes';
-import { aDigestHit, aHighlightHit, aNoteHit } from '@tests/fixtures/semantic';
+import { aBookHit, aDigestHit, aHighlightHit, aNoteHit } from '@tests/fixtures/search';
 import { renderApp } from '@tests/harness/renderApp';
+import { atCompactViewport } from '@tests/harness/viewport';
 import { settingsWithEmbeddings } from '@tests/msw/auth';
 import { bookApi } from '@tests/msw/bookApi';
 import { coversApi } from '@tests/msw/covers';
-import { semanticSearchApi } from '@tests/msw/semanticSearchApi';
+import { globalSearchApi } from '@tests/msw/searchApi';
 import { worker } from '@tests/msw/worker';
 import { delay, http, HttpResponse } from 'msw';
 import { expect, test } from 'vitest';
-import { page, userEvent } from 'vitest/browser';
+import { userEvent } from 'vitest/browser';
 
 const PLACEHOLDER = 'Search...';
 
 test('the app bar offers a global search field when embeddings are on', async () => {
   const { handlers } = bookApi({ book: aBookDetails() });
-  worker.use(settingsWithEmbeddings(true), ...handlers, ...semanticSearchApi({}));
+  worker.use(settingsWithEmbeddings(true), ...handlers, ...globalSearchApi({}));
 
   const screen = await renderApp({ path: '/book/1' });
 
   await expect.element(screen.getByPlaceholder(PLACEHOLDER)).toBeVisible();
 });
 
-test('the app bar has no search field when embeddings are off', async () => {
+test('with embeddings off, the app bar still finds books by name', async () => {
   const { handlers } = bookApi({ book: aBookDetails() });
-  worker.use(settingsWithEmbeddings(false), ...handlers);
+  worker.use(
+    settingsWithEmbeddings(false),
+    ...handlers,
+    ...globalSearchApi({
+      pragmatic: { books: [aBookHit({ id: 7, title: 'The Pragmatic Reader' })] },
+    })
+  );
 
   const screen = await renderApp({ path: '/book/1' });
+  await search(screen, 'pragmatic');
 
-  await expect.element(screen.getByRole('heading', { name: 'The Pragmatic Reader' })).toBeVisible();
-  await expect.element(screen.getByPlaceholder(PLACEHOLDER)).not.toBeInTheDocument();
+  await expect.element(screen.getByRole('option', { name: /The Pragmatic Reader/ })).toBeVisible();
 });
 
 /** Renders the app at a book page with the app bar's search wired to `results`. */
 const renderWithResults = async (
-  results: Parameters<typeof semanticSearchApi>[0],
+  results: Parameters<typeof globalSearchApi>[0],
   book = aBookDetails()
 ) => {
   const { handlers } = bookApi({ book, notes: [] });
-  worker.use(settingsWithEmbeddings(true), ...handlers, ...semanticSearchApi(results));
+  worker.use(settingsWithEmbeddings(true), ...handlers, ...globalSearchApi(results));
   return renderApp({ path: '/book/1' });
 };
 
@@ -111,6 +118,57 @@ test('the list is capped at ten rows after merging, not per type', async () => {
   await expect.element(screen.getByText('Showing top 10')).toBeVisible();
 });
 
+test('a book matched by name leads the list, whatever the ranked hits scored', async () => {
+  const screen = await renderWithResults({
+    attention: {
+      books: [aBookHit({ id: 7, title: 'Deep Work', author: 'Cal Newport' })],
+      highlights: [aHighlightHit({ id: 300, score: 0.99, text: 'A near-perfect highlight' })],
+    },
+  });
+
+  await search(screen, 'attention');
+
+  const rows = screen.getByRole('option');
+  await expect.element(rows.nth(0)).toHaveTextContent('Deep Work');
+  await expect.element(rows.nth(0)).toHaveTextContent('Cal Newport');
+  await expect.element(rows.nth(0).getByText('Book')).toBeVisible();
+  await expect.element(rows.nth(1)).toHaveTextContent('A near-perfect highlight');
+});
+
+test('books sit above the ten-row cap, which the ranked rows alone fill', async () => {
+  const screen = await renderWithResults({
+    attention: {
+      books: [aBookHit({ id: 7, title: 'Deep Work' }), aBookHit({ id: 8, title: 'Shallow Work' })],
+      highlights: Array.from({ length: 12 }, (_, index) =>
+        aHighlightHit({ id: 300 + index, score: 0.95 - index * 0.01, text: `Highlight ${index}` })
+      ),
+    },
+  });
+
+  await search(screen, 'attention');
+
+  const rows = screen.getByRole('option');
+  await expect.element(rows.nth(11)).toBeVisible();
+  expect(rows.elements()).toHaveLength(12);
+  await expect.element(screen.getByText('Showing top 10')).toBeVisible();
+});
+
+test('a list the books lengthen but the cap never touched claims no truncation', async () => {
+  const screen = await renderWithResults({
+    attention: {
+      books: [aBookHit({ id: 7, title: 'Deep Work' }), aBookHit({ id: 8, title: 'Shallow Work' })],
+      highlights: Array.from({ length: 3 }, (_, index) =>
+        aHighlightHit({ id: 300 + index, score: 0.9 - index * 0.01, text: `Highlight ${index}` })
+      ),
+    },
+  });
+
+  await search(screen, 'attention');
+
+  await expect.element(screen.getByRole('option').nth(4)).toBeVisible();
+  await expect.element(screen.getByText('Showing top 10')).not.toBeInTheDocument();
+});
+
 test('a note with no linked book is left out, having no page to open', async () => {
   const screen = await renderWithResults({
     attention: {
@@ -133,7 +191,7 @@ test('a row with a cover renders it as an image from the covers endpoint', async
     settingsWithEmbeddings(true),
     ...handlers,
     ...coversApi(),
-    ...semanticSearchApi({
+    ...globalSearchApi({
       attention: {
         highlights: [aHighlightHit({ id: 300, cover_file: 'cover-one.jpg' })],
       },
@@ -158,7 +216,7 @@ test('the initial fetch shows a spinner before any rows arrive', async () => {
     // Never resolves: `waitForIdle` in the test harness bounds its wait, so
     // this can't hang the run, and it keeps `isFetching` true for the whole
     // test without a fake timer.
-    http.get('/api/v1/semantic/search', async () => {
+    http.get('/api/v1/search', async () => {
       await delay('infinite');
     })
   );
@@ -190,7 +248,7 @@ test('clicking a note row opens the note dialog on the book page', async () => {
   worker.use(
     settingsWithEmbeddings(true),
     ...handlers,
-    ...semanticSearchApi({ attention: { notes: [aNoteHit({ id: 100, title: 'Ada Lovelace' })] } })
+    ...globalSearchApi({ attention: { notes: [aNoteHit({ id: 100, title: 'Ada Lovelace' })] } })
   );
   const screen = await renderApp({ path: '/book/1' });
 
@@ -220,6 +278,32 @@ test('clicking a chapter row opens the chapter dialog on the book page', async (
   expect(window.location.search).toContain('chapterId=10');
 });
 
+test('clicking a book row opens that book and closes the dropdown', async () => {
+  const screen = await renderWithResults({
+    attention: { books: [aBookHit({ id: 7, title: 'Deep Work' })] },
+  });
+
+  await search(screen, 'attention');
+  await userEvent.click(screen.getByRole('option').first());
+
+  expect(window.location.pathname).toBe('/book/7/structure');
+  await expect.element(screen.getByRole('listbox')).not.toBeInTheDocument();
+});
+
+test('Enter opens the row the arrow keys landed on', async () => {
+  const screen = await renderWithResults({
+    attention: { books: [aBookHit({ id: 7, title: 'Deep Work' })] },
+  });
+
+  await search(screen, 'attention');
+  await expect.element(screen.getByRole('option').first()).toBeVisible();
+
+  await userEvent.keyboard('{ArrowDown}');
+  await userEvent.keyboard('{Enter}');
+
+  expect(window.location.pathname).toBe('/book/7/structure');
+});
+
 test('Escape closes the dropdown and keeps the query, a second Escape clears it', async () => {
   const screen = await renderWithResults({
     attention: { notes: [aNoteHit({ id: 100, title: 'Ada Lovelace' })] },
@@ -245,6 +329,12 @@ test('tabbing away closes the dropdown instead of reopening it', async () => {
 
   await search(screen, 'attention');
   await expect.element(screen.getByRole('option').first()).toBeVisible();
+
+  // The clear button is focusable, and it belongs to the widget, so the first
+  // Tab is not a dismissal.
+  await userEvent.tab();
+  await expect.element(screen.getByRole('button', { name: 'Clear search' })).toHaveFocus();
+  await expect.element(screen.getByRole('listbox')).toBeVisible();
 
   await userEvent.tab();
 
@@ -281,7 +371,7 @@ test('a failing search reports the failure', async () => {
   worker.use(
     settingsWithEmbeddings(true),
     ...handlers,
-    http.get('/api/v1/semantic/search', () => new HttpResponse(null, { status: 500 }))
+    http.get('/api/v1/search', () => new HttpResponse(null, { status: 500 }))
   );
   const screen = await renderApp({ path: '/book/1' });
 
@@ -289,20 +379,6 @@ test('a failing search reports the failure', async () => {
 
   await expect.element(screen.getByText('Search failed. Try again.')).toBeVisible();
 });
-
-/**
- * Runs `fn` with the browser resized below `md`, always restoring the
- * config's 1440×900 default afterward — even if `fn` throws — so a resize
- * from one test can never leak into the next.
- */
-const atCompactViewport = async (fn: () => Promise<void>) => {
-  await page.viewport(400, 800);
-  try {
-    await fn();
-  } finally {
-    await page.viewport(1440, 900);
-  }
-};
 
 /**
  * Renders a book page below `md` with embeddings on, where only the search
@@ -385,16 +461,15 @@ test('a search with no results can still be dismissed via the close button', asy
   });
 });
 
-test('with embeddings off, no search icon appears below md', async () => {
+test('with embeddings off, the search icon still opens the dialog below md', async () => {
   const { handlers } = bookApi({ book: aBookDetails() });
-  worker.use(settingsWithEmbeddings(false), ...handlers);
+  worker.use(settingsWithEmbeddings(false), ...handlers, ...globalSearchApi({}));
 
   await atCompactViewport(async () => {
     const screen = await renderApp({ path: '/book/1' });
 
-    await expect
-      .element(screen.getByRole('heading', { name: 'The Pragmatic Reader' }))
-      .toBeVisible();
-    await expect.element(screen.getByRole('button', { name: 'Search' })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Search' }));
+
+    await expect.element(screen.getByPlaceholder(PLACEHOLDER)).toBeVisible();
   });
 });

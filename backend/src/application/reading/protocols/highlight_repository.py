@@ -1,6 +1,9 @@
+from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import datetime as dt
 from typing import Protocol
 
+from src.application.web_reader.anchors import Locator
 from src.domain.common.value_objects import ContentHash, XPointRange
 from src.domain.common.value_objects.ids import (
     BookId,
@@ -27,7 +30,7 @@ class DeviceEdit:
     highlight_id: HighlightId
     koreader_note: str | None
     highlight_style_id: HighlightStyleId | None
-    koreader_updated_at: str
+    koreader_updated_at: dt
 
 
 class HighlightRepositoryProtocol(Protocol):
@@ -74,6 +77,12 @@ class HighlightRepositoryProtocol(Protocol):
         placements: list[tuple[HighlightId, XPointRange, Position | None]],
     ) -> int:
         """Write xpoints and position onto highlights stored without them."""
+        ...
+
+    async def bulk_update_locators(
+        self, locators: Mapping[HighlightId, Locator | None], source_hash: str
+    ) -> None:
+        """Write the derived Locator and its source digest onto stored highlights."""
         ...
 
     async def mark_removed_from_devices(

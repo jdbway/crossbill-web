@@ -1,13 +1,23 @@
 """Pydantic schemas for Reading Session API request/response validation."""
 
+from datetime import UTC
 from datetime import datetime as dt
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Annotated, Self
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import AfterValidator, BaseModel, Field, model_validator
 
 if TYPE_CHECKING:
     # Import at runtime is handled below to avoid circular imports
     pass
+
+
+def _as_utc(value: dt) -> dt:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
+_SyncDatetime = Annotated[dt, AfterValidator(_as_utc)]
 
 
 class ReadingSessionBase(BaseModel):
@@ -20,8 +30,6 @@ class ReadingSessionBase(BaseModel):
     end_time: dt = Field(..., description="Session end timestamp")
     start_page: int | None = Field(None, ge=0, description="Start page number")
     end_page: int | None = Field(None, ge=0, description="End page number")
-    content: str | None = Field(None, description="Extracted text content of the session")
-    ai_summary: str | None = Field(None, description="AI generated summary of the read content")
 
 
 # Import Highlight after ReadingSessionBase is defined to avoid circular import issues
@@ -43,8 +51,8 @@ class ReadingSession(ReadingSessionBase):
 class ReadingSessionSyncItem(BaseModel):
     """Schema for a single reading session in the sync request."""
 
-    start_time: dt = Field(..., description="Session start timestamp")
-    end_time: dt = Field(..., description="Session end timestamp")
+    start_time: _SyncDatetime = Field(..., description="Session start timestamp")
+    end_time: _SyncDatetime = Field(..., description="Session end timestamp")
     start_xpoint: str | None = Field(None, description="Start position (xpoint string)")
     end_xpoint: str | None = Field(None, description="End position (xpoint string)")
     start_page: int | None = Field(None, ge=0, description="Start page number")
@@ -91,9 +99,3 @@ class ReadingSessionSyncResponse(BaseModel):
     book_id: int = Field(..., description="ID of the book for these sessions")
     created_count: int = Field(0, description="Number of sessions created")
     skipped_duplicate_count: int = Field(0, description="Sessions skipped because already synced")
-
-
-class ReadingSessionAISummaryResponse(BaseModel):
-    """Schema for AI summary response."""
-
-    summary: str = Field(..., description="AI-generated summary of the reading session")

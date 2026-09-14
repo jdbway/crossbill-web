@@ -7,6 +7,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.application.reading.services.label_resolution_service import LabelResolutionService
 from src.domain.reading.services.deduplication_service import HighlightDeduplicationService
 from src.domain.reading.services.highlight_style_resolver import HighlightStyleResolver
+from src.domain.reading.services.library_reading_activity_calculator import (
+    LibraryReadingActivityCalculator,
+)
+from src.domain.reading.services.library_reading_stats_calculator import (
+    LibraryReadingStatsCalculator,
+)
+from src.domain.reading.services.reading_activity_calculator import (
+    ReadingActivityCalculator,
+)
+from src.domain.reading.services.reading_statistics_calculator import (
+    ReadingStatisticsCalculator,
+)
 from src.infrastructure.ai.ai_service import AIService
 from src.infrastructure.ai.repositories.ai_usage_repository import AIUsageRepository
 from src.infrastructure.identity.repositories.refresh_token_repository import RefreshTokenRepository
@@ -36,12 +48,17 @@ from src.infrastructure.library.services.epub_text_extraction_service import (
 )
 from src.infrastructure.notes.queries.note_query import NoteQuery
 from src.infrastructure.notes.repositories.note_repository import NoteRepository
+from src.infrastructure.reading.queries.book_statistics_query import BookStatisticsQuery
 from src.infrastructure.reading.queries.bookmark_query import BookmarkQuery
 from src.infrastructure.reading.queries.ereader_digest_query import EreaderDigestQuery
 from src.infrastructure.reading.queries.ereader_highlights_query import EreaderHighlightsQuery
 from src.infrastructure.reading.queries.highlight_label_query import HighlightLabelQuery
 from src.infrastructure.reading.queries.highlight_search_query import HighlightSearchQuery
+from src.infrastructure.reading.queries.library_reading_activity_query import (
+    LibraryReadingActivityQuery,
+)
 from src.infrastructure.reading.queries.reading_session_query import ReadingSessionQuery
+from src.infrastructure.reading.queries.recent_captures_query import RecentCapturesQuery
 from src.infrastructure.reading.repositories import (
     BookmarkRepository,
     HighlightRepository,
@@ -62,6 +79,23 @@ from src.infrastructure.semantic.queries.search_hydration_query import SearchHyd
 from src.infrastructure.semantic.queries.semantic_search_query import SemanticSearchQuery
 from src.infrastructure.semantic.repositories.embedding_repository import EmbeddingRepository
 from src.infrastructure.tagging.repositories import TagRepository
+from src.infrastructure.web_reader.queries.highlight_locator_query import HighlightLocatorQuery
+from src.infrastructure.web_reader.queries.publication_resource_query import (
+    PublicationResourceQuery,
+)
+from src.infrastructure.web_reader.queries.resume_position_query import ResumePositionQuery
+from src.infrastructure.web_reader.repositories.publication_repository import (
+    PublicationRepository,
+)
+from src.infrastructure.web_reader.repositories.web_reading_position_repository import (
+    WebReadingPositionRepository,
+)
+from src.infrastructure.web_reader.services.publication_token_service_adapter import (
+    PublicationTokenServiceAdapter,
+)
+from src.infrastructure.web_reader.services.xpoint_cfi_position_anchor_service import (
+    XPointCfiPositionAnchorService,
+)
 
 
 def _create_s3_file_repository(settings: Any) -> S3FileRepository:  # noqa: ANN401
@@ -94,6 +128,8 @@ class SharedContainer(containers.DeclarativeContainer):
     flashcard_repository = providers.Factory(FlashcardRepository, db=db)
     chapter_digest_repository = providers.Factory(ChapterDigestRepository, db=db)
     highlight_style_repository = providers.Factory(HighlightStyleRepository, db=db)
+    publication_repository = providers.Factory(PublicationRepository, db=db)
+    web_reading_position_repository = providers.Factory(WebReadingPositionRepository, db=db)
     file_repository = providers.Selector(
         providers.Callable(
             lambda settings: "s3" if settings.s3_enabled else "local", settings=settings
@@ -112,6 +148,7 @@ class SharedContainer(containers.DeclarativeContainer):
     # Infrastructure services (no db dependency)
     epub_parser_service = providers.Factory(EpubParserService)
     epub_position_index_service = providers.Factory(EpubPositionIndexService)
+    position_anchor_service = providers.Factory(XPointCfiPositionAnchorService)
     ebook_text_extraction_service = providers.Factory(EpubTextExtractionService)
     cover_image_service = providers.Factory(CoverImageService)
 
@@ -119,11 +156,22 @@ class SharedContainer(containers.DeclarativeContainer):
     user_repository = providers.Factory(UserRepository, db=db)
     password_service = providers.Singleton(PasswordServiceAdapter)
     token_service = providers.Singleton(TokenServiceAdapter)
+    publication_token_service = providers.Singleton(PublicationTokenServiceAdapter)
     refresh_token_repository = providers.Factory(RefreshTokenRepository, db=db)
 
     # Domain services
     highlight_deduplication_service = providers.Factory(HighlightDeduplicationService)
     highlight_style_resolver = providers.Factory(HighlightStyleResolver)
+    reading_activity_calculator = providers.Factory(ReadingActivityCalculator)
+    reading_statistics_calculator = providers.Factory(
+        ReadingStatisticsCalculator,
+        activity_calculator=reading_activity_calculator,
+    )
+    library_reading_activity_calculator = providers.Factory(
+        LibraryReadingActivityCalculator,
+        activity_calculator=reading_activity_calculator,
+    )
+    library_reading_stats_calculator = providers.Factory(LibraryReadingStatsCalculator)
 
     # Application services (with deps)
     label_resolution_service = providers.Factory(
@@ -145,6 +193,22 @@ class SharedContainer(containers.DeclarativeContainer):
         db=db,
         label_resolution_service=label_resolution_service,
     )
+    book_statistics_query = providers.Factory(
+        BookStatisticsQuery,
+        db=db,
+        statistics_calculator=reading_statistics_calculator,
+    )
+    library_reading_activity_query = providers.Factory(
+        LibraryReadingActivityQuery,
+        db=db,
+        activity_calculator=library_reading_activity_calculator,
+        stats_calculator=library_reading_stats_calculator,
+    )
+    recent_captures_query = providers.Factory(
+        RecentCapturesQuery,
+        db=db,
+        label_resolution_service=label_resolution_service,
+    )
     bookmark_query = providers.Factory(BookmarkQuery, db=db)
     ereader_digest_query = providers.Factory(EreaderDigestQuery, db=db)
     ereader_highlights_query = providers.Factory(EreaderHighlightsQuery, db=db)
@@ -162,9 +226,14 @@ class SharedContainer(containers.DeclarativeContainer):
         ReadingSessionQuery,
         db=db,
         label_resolution_service=label_resolution_service,
-        file_repository=file_repository,
-        text_extraction_service=ebook_text_extraction_service,
     )
+    publication_resource_query = providers.Factory(
+        PublicationResourceQuery,
+        db=db,
+        file_repository=file_repository,
+    )
+    highlight_locator_query = providers.Factory(HighlightLocatorQuery, db=db)
+    resume_position_query = providers.Factory(ResumePositionQuery, db=db)
 
     # Learning repositories
     ai_chat_session_repository = providers.Factory(AIChatSessionRepository, db=db)

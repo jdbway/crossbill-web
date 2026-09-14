@@ -1,40 +1,53 @@
 import { TagGroupInBook } from '@/api/generated/model';
-import { DeleteIcon, EditIcon, EditTagsIcon, ExpandMoreIcon } from '@/theme/Icons.tsx';
-import { createAdaptiveHoverStyles, createAdaptiveTouchTarget } from '@/utils/adaptiveHover.ts';
-import { Box, ClickAwayListener, IconButton, TextField, Tooltip, Typography } from '@mui/material';
-import { KeyboardEvent, useState } from 'react';
+import { CollapseChevron } from '@/components/CollapseChevron.tsx';
+import { SavedIndicator } from '@/components/SavedIndicator.tsx';
+import { useCommitOnBlur } from '@/hooks/useCommitOnBlur.ts';
+import type { SaveStatus } from '@/hooks/useSaveStatus.ts';
+import { DeleteIcon, EditIcon, EditTagsIcon } from '@/theme/Icons.tsx';
+import { ICON_SIZE } from '@/theme/iconSizes.ts';
+import { createAdaptiveHoverStyles } from '@/utils/adaptiveHover.ts';
+import { Box, ButtonBase, IconButton, TextField, Tooltip, Typography } from '@mui/material';
+import { useState } from 'react';
 
 interface TagGroupTitleProps {
   title: string;
   count: number;
   isExpanded: boolean;
   onToggleCollapse: () => void;
+  /** Id of the region the title controls, for `aria-controls`. */
+  controlsId?: string;
 }
 
+/**
+ * The group's name, doubling as the control that collapses it. A `ButtonBase`
+ * rather than a clickable `Box`, so it is reachable and operable from the
+ * keyboard and announces whether the group is open.
+ */
 export const TagGroupTitle = ({
   title,
   count,
   isExpanded,
   onToggleCollapse,
+  controlsId,
 }: TagGroupTitleProps) => {
   return (
-    <Box
+    <ButtonBase
       onClick={onToggleCollapse}
+      aria-expanded={isExpanded}
+      aria-controls={controlsId}
       sx={{
         display: 'flex',
         alignItems: 'center',
+        justifyContent: 'flex-start',
+        textAlign: 'left',
         gap: 0.5,
         flex: 1,
-        cursor: 'pointer',
+        borderRadius: 0.5,
       }}
     >
-      <ExpandMoreIcon
-        sx={{
-          fontSize: 16,
-          color: 'text.secondary',
-          transform: isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)',
-          transition: 'transform 0.15s',
-        }}
+      <CollapseChevron
+        isExpanded={isExpanded}
+        sx={{ fontSize: ICON_SIZE.inline, color: 'text.secondary' }}
       />
       <Typography
         variant="subtitle2"
@@ -59,7 +72,7 @@ export const TagGroupTitle = ({
           ({count})
         </Typography>
       </Typography>
-    </Box>
+    </ButtonBase>
   );
 };
 
@@ -67,43 +80,34 @@ interface TagGroupNameEditFormProps {
   initialValue: string;
   isProcessing: boolean;
   onSubmit: (value: string) => void;
-  onCancel: () => void;
+  /** Ends the edit — after Escape, and after leaving the field either way. */
+  onClose: () => void;
 }
 
 const TagGroupNameEditForm = ({
   initialValue,
   isProcessing,
   onSubmit,
-  onCancel,
+  onClose,
 }: TagGroupNameEditFormProps) => {
-  const [editValue, setEditValue] = useState(initialValue);
-
-  const handleSubmit = () => {
-    onSubmit(editValue);
-  };
-
-  const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      handleSubmit();
-    } else if (e.key === 'Escape') {
-      onCancel();
-    }
-  };
+  // Clicking away blurs the input, which is what saves the name — the shared
+  // hook also keeps that from renaming twice when the field is left again
+  // while the first rename is still in flight.
+  const field = useCommitOnBlur({
+    saved: initialValue,
+    onCommit: onSubmit,
+    onBlur: onClose,
+    onCancel: onClose,
+  });
 
   return (
-    <ClickAwayListener onClickAway={handleSubmit}>
-      <TextField
-        value={editValue}
-        onChange={(e) => setEditValue(e.target.value)}
-        onKeyDown={handleKeyDown}
-        onBlur={handleSubmit}
-        size="small"
-        autoFocus
-        disabled={isProcessing}
-        sx={{ flex: 1, mr: 1 }}
-      />
-    </ClickAwayListener>
+    <TextField
+      {...field.inputProps}
+      size="small"
+      autoFocus
+      disabled={isProcessing}
+      sx={{ flex: 1, mr: 1 }}
+    />
   );
 };
 
@@ -116,6 +120,10 @@ interface TagGroupHeaderProps {
   onEditTags: () => void;
   onDelete: () => void;
   isProcessing: boolean;
+  /** Rename saves itself when the field is left, so the save is marked here. */
+  saveStatus: SaveStatus;
+  /** Id of the region the title controls, for `aria-controls`. */
+  controlsId?: string;
 }
 
 export const TagGroupHeader = ({
@@ -127,6 +135,8 @@ export const TagGroupHeader = ({
   onEditTags,
   onDelete,
   isProcessing,
+  saveStatus,
+  controlsId,
 }: TagGroupHeaderProps) => {
   const [isEditing, setIsEditing] = useState(false);
 
@@ -134,7 +144,6 @@ export const TagGroupHeader = ({
     actionsClassName: 'group-actions',
     transitionDuration: 0.15,
   });
-  const touchTarget = createAdaptiveTouchTarget();
 
   const handleEditSubmit = (value: string) => {
     onEditSubmit(value);
@@ -148,7 +157,6 @@ export const TagGroupHeader = ({
         alignItems: 'center',
         justifyContent: 'space-between',
         mb: isExpanded ? 1 : 0,
-        cursor: 'pointer',
         ...adaptiveStyles.container,
       }}
     >
@@ -157,7 +165,7 @@ export const TagGroupHeader = ({
           initialValue={group.name}
           isProcessing={isProcessing}
           onSubmit={handleEditSubmit}
-          onCancel={() => setIsEditing(false)}
+          onClose={() => setIsEditing(false)}
         />
       ) : (
         <TagGroupTitle
@@ -165,59 +173,66 @@ export const TagGroupHeader = ({
           count={tagCount}
           isExpanded={isExpanded}
           onToggleCollapse={onToggleCollapse}
+          controlsId={controlsId}
         />
       )}
       {!isEditing && (
-        <Box
-          className="group-actions"
-          sx={{
-            ...adaptiveStyles.actions,
-            gap: 0.25,
-          }}
-        >
-          <Tooltip title="Edit tags">
-            <span>
-              <IconButton
-                size="small"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onEditTags();
-                }}
-                sx={{ ...touchTarget, color: 'text.disabled' }}
-              >
-                <EditTagsIcon sx={{ fontSize: 14 }} />
-              </IconButton>
-            </span>
-          </Tooltip>
-          <Tooltip title="Rename group">
-            <span>
-              <IconButton
-                size="small"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setIsEditing(true);
-                }}
-                sx={{ ...touchTarget, color: 'text.disabled' }}
-              >
-                <EditIcon sx={{ fontSize: 14 }} />
-              </IconButton>
-            </span>
-          </Tooltip>
-          <Tooltip title="Delete group">
-            <span>
-              <IconButton
-                size="small"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDelete();
-                }}
-                disabled={isProcessing}
-                sx={{ ...touchTarget, color: 'text.disabled' }}
-              >
-                <DeleteIcon sx={{ fontSize: 14 }} />
-              </IconButton>
-            </span>
-          </Tooltip>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+          <SavedIndicator status={saveStatus} sx={{ minHeight: 0 }} />
+          <Box
+            className="group-actions"
+            sx={{
+              ...adaptiveStyles.actions,
+              gap: 0.5,
+            }}
+          >
+            <Tooltip title="Edit tags">
+              <span>
+                <IconButton
+                  size="small"
+                  aria-label="Edit tags"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onEditTags();
+                  }}
+                  sx={{ color: 'text.secondary' }}
+                >
+                  <EditTagsIcon sx={{ fontSize: ICON_SIZE.ui }} />
+                </IconButton>
+              </span>
+            </Tooltip>
+            <Tooltip title="Rename group">
+              <span>
+                <IconButton
+                  size="small"
+                  aria-label="Rename group"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsEditing(true);
+                  }}
+                  sx={{ color: 'text.secondary' }}
+                >
+                  <EditIcon sx={{ fontSize: ICON_SIZE.ui }} />
+                </IconButton>
+              </span>
+            </Tooltip>
+            <Tooltip title="Delete group">
+              <span>
+                <IconButton
+                  size="small"
+                  aria-label="Delete group"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDelete();
+                  }}
+                  disabled={isProcessing}
+                  sx={{ color: 'text.secondary' }}
+                >
+                  <DeleteIcon sx={{ fontSize: ICON_SIZE.ui }} />
+                </IconButton>
+              </span>
+            </Tooltip>
+          </Box>
         </Box>
       )}
     </Box>

@@ -10,9 +10,9 @@ Model Context Protocol (MCP) server that exposes the Crossbill reading companion
 - Tag highlights, and manage a book's tags and tag groups
 - Create, update, and delete flashcards
 - Manage bookmarks
-- View reading sessions and their AI summaries
+- View reading sessions
 - Track a book's reading stage and its four-question reflection
-- Semantic search over highlights, notes, and chapter digests
+- Search the library: highlights, notes, and chapter digests by meaning, books by name
 - Create, read, update, and delete markdown notes
 - Generate chapter digests and AI flashcard suggestions
 - Delete books and highlights, behind a confirmation prompt the server enforces
@@ -116,7 +116,7 @@ Every deletion tool in the server (these two plus `delete_note`, `delete_flashca
 
 - **list_books** - List books with optional search and pagination
 - **get_book** - Get detailed book info with chapters and highlights
-- **get_recently_viewed_books** - Get recently viewed books
+- **get_recent_books** - Get the books last opened or synced, most recent first
 - **set_reading_stage** - Set a book's manual reading stage (`to_read`, `skimming`, `reading`, `finished`, `reflected`, `did_not_finish`), or clear it so the book has no stage
 - **delete_book** - Delete a book with all its chapters and highlights, after asking you to confirm (see [Deleting data](#deleting-data))
 
@@ -152,7 +152,6 @@ The three suggestion tools below require an AI provider configured on the Crossb
 
 - **get_reading_sessions** - Get reading sessions for a book, with `limit` and `offset` for paging
 - **get_chapter_content** - Get full text content of a chapter from the EPUB
-- **get_reading_session_summary** - Get an AI summary of what was read in one session, cached after the first call. Requires an AI provider configured on the Crossbill server
 
 ### Chapter Digests
 
@@ -173,12 +172,12 @@ A digest is an AI-written study aid for one chapter: a summary, a list of keypoi
 - **create_bookmark** - Bookmark a highlight
 - **delete_bookmark** - Delete a bookmark
 
-### Semantic Search
+### Search
 
-Requires an embedding provider configured on the Crossbill server; without one, both tools report that semantic search is not enabled.
+`find_related` requires an embedding provider configured on the Crossbill server, and reports that it is not enabled without one. `search_library` still matches books by title and author, and answers with its ranked groups empty.
 
-- **semantic_search** - Rank highlights, notes, and chapter digests by semantic similarity to a natural-language query, optionally scoped to one book. Results are grouped by content type, with `limit` applied per group.
-- **find_related** - Find content similar to an existing item, named by `content_type` (`note`, `highlight`, or `digest`) and `content_id`. Same grouped response shape as `semantic_search`.
+- **search_library** - Search the whole library from one query: highlights, notes, and chapter digests ranked by semantic similarity, plus a `books` group matched by title or author rather than by meaning. Optionally scoped to one book, which drops the books group. Results are grouped by content type, with `limit` applied per group.
+- **find_related** - Find content similar to an existing item, named by `content_type` (`note`, `highlight`, or `digest`) and `content_id`. The ranked half of `search_library`'s response shape.
 
 ### Notes
 

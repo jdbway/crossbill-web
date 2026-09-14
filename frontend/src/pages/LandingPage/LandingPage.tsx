@@ -1,61 +1,20 @@
-import { useGetBooks } from '@/api/generated/books/books';
-import { Spinner } from '@/components/animations/Spinner.tsx';
-import { SearchBar } from '@/components/inputs/SearchBar.tsx';
 import { PageContainer } from '@/components/layout/Layouts.tsx';
-import { SectionTitle } from '@/components/typography/SectionTitle.tsx';
-import { Alert, Box, Pagination, Typography } from '@mui/material';
-import { useNavigate, useSearch } from '@tanstack/react-router';
-import { BookList } from './components/BookList';
-import { RecentlySyncedBooks } from './components/RecentlySyncedBooks';
-import { RecentlyViewedBooks } from './components/RecentlyViewedBooks';
+import { PageTitle } from '@/components/typography/PageTitle.tsx';
+import { Box, Typography } from '@mui/material';
+import { ReadingActivity } from './components/ReadingActivity';
+import { RecentBooks } from './components/RecentBooks';
+import { RecentCaptures } from './components/RecentCaptures';
 
-const BOOKS_PER_PAGE = 32;
-
+/**
+ * The reader's dashboard: what they were last reading, how the year has gone,
+ * and what they last marked in a book. Browsing every book lives on the
+ * library page, which the app bar reaches from here as from anywhere.
+ */
 export const LandingPage = () => {
-  const navigate = useNavigate({ from: '/' });
-  const { search, page } = useSearch({ from: '/' });
-  const searchText = search || '';
-  const currentPage = page || 1;
-
-  // Calculate offset for pagination
-  const offset = (currentPage - 1) * BOOKS_PER_PAGE;
-
-  const { data, isLoading, isError } = useGetBooks({
-    search: searchText || undefined,
-    offset,
-    limit: BOOKS_PER_PAGE,
-  });
-
-  const handleSearch = (value: string) => {
-    navigate({
-      search: (prev) => ({
-        ...prev,
-        search: value || undefined,
-        page: 1, // Reset to first page when searching
-      }),
-      replace: true,
-    });
-  };
-
-  const handlePageChange = (_event: React.ChangeEvent<unknown>, value: number) => {
-    navigate({
-      search: (prev) => ({
-        ...prev,
-        page: value,
-      }),
-      replace: true,
-    });
-  };
-
-  // Calculate total pages
-  const totalPages = data?.total ? Math.ceil(data.total / BOOKS_PER_PAGE) : 0;
-
   return (
     <PageContainer maxWidth="xl">
       <Box sx={{ mt: { xs: 6, md: 8 }, mb: 6, textAlign: 'center' }}>
-        <Typography variant="h2" component="h1" gutterBottom>
-          Welcome to Crossbill
-        </Typography>
+        <PageTitle text="Welcome to Crossbill" component="h1" />
         <Typography
           variant="body1"
           sx={{
@@ -67,63 +26,11 @@ export const LandingPage = () => {
         </Typography>
       </Box>
 
-      {/* Only show the recent rows when not searching */}
-      {!searchText && (
-        <>
-          <RecentlySyncedBooks />
-          <RecentlyViewedBooks />
-        </>
-      )}
+      <RecentBooks />
 
-      <SectionTitle showDivider>All books</SectionTitle>
+      <ReadingActivity />
 
-      <Box sx={{ mb: 3 }}>
-        <SearchBar
-          onSearch={handleSearch}
-          placeholder="Search books by title or author..."
-          initialValue={searchText}
-        />
-      </Box>
-
-      {isLoading && <Spinner />}
-
-      {isError && (
-        <Box sx={{ py: 3 }}>
-          <Alert severity="error">Failed to load books. Please try again later.</Alert>
-        </Box>
-      )}
-
-      {data?.items && data.items.length === 0 && (
-        <Box sx={{ py: 4, textAlign: 'center' }}>
-          <Typography
-            variant="body1"
-            sx={{
-              color: 'text.secondary',
-            }}
-          >
-            No books found. Upload some highlights to get started!
-          </Typography>
-        </Box>
-      )}
-
-      {data?.items && data.items.length > 0 && (
-        <>
-          <BookList books={data.items} pageKey={`${currentPage}-${searchText}`} />
-          {totalPages > 1 && (
-            <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
-              <Pagination
-                count={totalPages}
-                page={currentPage}
-                onChange={handlePageChange}
-                color="primary"
-                size="large"
-                showFirstButton
-                showLastButton
-              />
-            </Box>
-          )}
-        </>
-      )}
+      <RecentCaptures />
     </PageContainer>
   );
 };

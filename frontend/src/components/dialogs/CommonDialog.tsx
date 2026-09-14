@@ -1,6 +1,6 @@
 import { useDialogStackEntry } from '@/components/dialogs/dialogStack.ts';
 import type { DialogNavigation } from '@/components/dialogs/useDialogHorizontalNavigation.ts';
-import { lockBodyScroll, unlockBodyScroll } from '@/lib/bodyScrollLock.ts';
+import { useBodyScrollLock } from '@/hooks/useBodyScrollLock.ts';
 import { ArrowBackIcon, ArrowForwardIcon, CloseIcon } from '@/theme/Icons.tsx';
 import {
   Box,
@@ -21,17 +21,35 @@ interface CommonDialogProps {
   children: ReactNode;
   footerActions?: ReactNode;
   /**
-   * Paging to the previous/next entity, rendered centred in the footer at
-   * every width, and bound to the left/right arrow keys. Wider screens
-   * additionally get the controls beside the content
-   * (`CommonDialogHorizontalNavigation`); the footer is the pair that is
-   * always in the same place, whatever the dialog is showing.
+   * Paging to the previous/next entity, bound to the left/right arrow keys and
+   * rendered as one pair of controls, centred in the footer, at every width.
    */
   navigation?: DialogNavigation;
   maxWidth?: 'xs' | 'sm' | 'md' | 'lg' | 'xl';
   isLoading?: boolean;
   headerElement?: ReactNode;
 }
+
+interface NavArrowProps {
+  direction: 'previous' | 'next';
+  navigation: DialogNavigation;
+  disabled?: boolean;
+}
+
+const NavArrow = ({ direction, navigation, disabled }: NavArrowProps) => {
+  const isPrevious = direction === 'previous';
+  const enabled = isPrevious ? navigation.hasPrevious : navigation.hasNext;
+
+  return (
+    <IconButton
+      onClick={isPrevious ? navigation.onPrevious : navigation.onNext}
+      disabled={!enabled || disabled}
+      aria-label={isPrevious ? 'Previous' : 'Next'}
+    >
+      {isPrevious ? <ArrowBackIcon /> : <ArrowForwardIcon />}
+    </IconButton>
+  );
+};
 
 /**
  * Common dialog component with standard structure:
@@ -56,32 +74,15 @@ export const CommonDialog = ({
   const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
   const isTopmostDialog = useDialogStackEntry(open);
 
+  // One pair of arrows, in one place, at every width.
   const footerNavigation = navigation ? (
     <Box sx={{ display: 'flex', gap: 1 }}>
-      <IconButton
-        onClick={navigation.onPrevious}
-        disabled={!navigation.hasPrevious || isLoading}
-        aria-label="Previous"
-      >
-        <ArrowBackIcon />
-      </IconButton>
-      <IconButton
-        onClick={navigation.onNext}
-        disabled={!navigation.hasNext || isLoading}
-        aria-label="Next"
-      >
-        <ArrowForwardIcon />
-      </IconButton>
+      <NavArrow direction="previous" navigation={navigation} disabled={isLoading} />
+      <NavArrow direction="next" navigation={navigation} disabled={isLoading} />
     </Box>
   ) : null;
 
-  // Lock body scroll when dialog is open
-  useEffect(() => {
-    if (!open) return;
-
-    lockBodyScroll();
-    return unlockBodyScroll;
-  }, [open]);
+  useBodyScrollLock(open);
 
   useEffect(() => {
     if (!open || !navigation) return;
@@ -215,7 +216,23 @@ export const CommonDialog = ({
             {headerElement}
           </Box>
         )}
-        <Box sx={{ px: 3 }}>{children}</Box>
+        <Box sx={{ px: 3 }}>
+          {navigation ? (
+            <Box
+              sx={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 3,
+                minWidth: 0,
+                px: fullScreen ? 0 : 2,
+              }}
+            >
+              {children}
+            </Box>
+          ) : (
+            children
+          )}
+        </Box>
       </DialogContent>
 
       {(footerActions || footerNavigation) && (
@@ -240,7 +257,7 @@ export const CommonDialog = ({
               </Box>
             </>
           ) : (
-            footerActions
+            <Box sx={{ flex: 1, display: 'flex', justifyContent: 'flex-end' }}>{footerActions}</Box>
           )}
         </DialogActions>
       )}

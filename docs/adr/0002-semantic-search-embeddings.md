@@ -173,13 +173,13 @@ makes `alembic revision --autogenerate` report a diff forever and gives
 | `application/semantic/idempotency.py` | The staleness rule, defined once |
 | `application/semantic/protocols/` | Ports: embedding client, embedding repository, content source |
 | `application/semantic/commands/` | `GenerateContentEmbeddingUseCase` (task core), `EnqueueContentEmbeddingsUseCase` (backfill) |
-| `application/semantic/queries/` | `SemanticSearchHit` + query port, grouped result views + hydration port; `SearchContentUseCase`, `RelatedContentUseCase` |
+| `application/semantic/queries/` | `SemanticSearchHit` + query port, grouped result views + hydration port; `GlobalSearchUseCase`, `RelatedContentUseCase` |
 | `infrastructure/semantic/orm/` | `embeddings` table ORM |
 | `infrastructure/semantic/repositories/` | Embedding repository (upsert / get_state / delete_for) |
 | `infrastructure/semantic/clients/` | OpenAI-compatible embedding client (Ollama / OpenRouter by base-URL) |
 | `infrastructure/semantic/content/` | Content source: `ContentType` → source ORM; text + hash; reconciliation query |
 | `infrastructure/semantic/queries/` | Nearest-neighbour query adapter |
-| `infrastructure/semantic/routers/` | `GET` search, `GET` related, `POST` backfill |
+| `infrastructure/semantic/routers/` | `GET /search` (own module and tag), `GET` related, `POST` backfill |
 
 Cross-module coupling is concentrated in exactly one accepted place:
 **`content/content_source.py` reads other modules' ORM** to fetch embeddable
@@ -562,3 +562,117 @@ as the anchor indexes already in `Embedding.__table_args__`
 (`infrastructure/semantic/orm/embedding_model.py`): a partial HNSW index per
 content type, so each type's scan never has to cross another's tuples to fill
 its page.
+
+## Amendment 2026-09-03 — score floors and a gated per-book cap
+
+Both ranked reads now discard weak matches instead of showing them. A
+nearest-neighbour scan always answers with its top `k`, so until now a query
+with no real match came back with the least-bad rows and looked as confident as
+one with a good answer. `/search` holds a cosine floor of **0.45**, `/related`
+one of **0.60**, and a group that clears neither comes back empty. `/related`
+additionally caps a page at **two results per book** per content type, but only
+when at least **ten** pooled candidates scoring **0.62** or better come from
+outside the anchor's book.
+
+The numbers come from the semantic-lab research repo (experiments 003 to 006):
+the owner's library, two judges' relevance labels, and frozen evalsets. They are
+recorded next to the constants they justify in
+`application/semantic/queries/ranking.py`, which is the file to read before
+changing any of them. Three things are worth repeating here:
+
+- **The floors sit on plateaus, not edges.** No search floor between 0.35 and
+  0.55 changes precision — the best nonsense query scores 0.435 and the worst
+  real query's top hit 0.529 — so 0.45 is a wide target, not a tuned one.
+- **The cap had to be gated.** Applied unconditionally it drops related
+  precision@10 from 0.73 to 0.29 on the seven anchors whose only genuine
+  neighbours are in their own book: a technical book or a novel. Gated, it
+  leaves those at baseline and lifts distinct books per page from 2.5 to 4.0
+  everywhere else.
+- **They are tuned to one model and one corpus.** `bge-m3`, one library.
+  Swapping the embedding model invalidates all four numbers, and the honest
+  response is to re-run the lab rather than nudge a constant.
+
+The rules are pure functions over the scan's hits, above the adapter, so the
+pgvector and SQLite paths choose the same page from the same candidates.
+`/related` over-fetches four times its `limit` per type to give the cap room to
+reach past a book that has already filled its share — which also bounds what
+the gate can see, since it counts within that pool.
+
+This is also what settled the shape of the related UI. The 0.60 floor is
+harmless on a merged page but guts a per-type note list — it drops 85 of 146
+judged-relevant notes and empties 16 of 40 lists — so the frontend renders one
+merged ranking rather than a strip per content type. Scores are one scale across
+all three types, which is what makes the merge meaningful; the alternative,
+giving notes a lower floor of their own, would have needed a measurement nobody
+had and would have left three lists asking the reader to compare scores the
+ranking had already compared.
+
+## Amendment 2026-09-04 — the search read is no longer a semantic one
+
+`GET /semantic/search` is now `GET /search`, under its own OpenAPI tag and its
+own router module. Books whose title or author contains the query ride on top of
+the ranked groups, matched by name rather than by meaning, so the read as a
+whole stopped being semantic when that group was added — and it is the app bar's
+search box, where finding a book by typing its title is the thing a reader
+expects most.
+
+`/semantic/related` and `/semantic/backfill` keep their path: they are still
+purely about the embeddings index, and the `semantic` module keeps its name for
+the same reason.
+
+The response types are renamed around what is actually ranked.
+`RankedContentGroups` (`RankedContentGroupsView` in the application layer) is
+the three scored groups: the whole of what `/related` answers, and what
+`GlobalSearchResults` extends with its unranked `books`. Previously the global
+result subclassed a type named after the other route, which put the naming
+exactly backwards.
+
+Two things this deliberately did **not** change:
+
+- **The embeddings gate.** `/search` still answers 403 when no embedding
+  provider is configured, so a server without one has no book-name search
+  either, even though that half needs no vectors. Degrading to the books group
+  instead is a behaviour change, not a rename, and belongs in its own decision
+  — taken in the amendment below.
+- **The frontend's shared hook.** It is `useContentSearch`, not
+  `useGlobalSearch`: the Notes and Structure pages call the same endpoint with a
+  `book_id`, and under that scope no books are matched, which makes it a purely
+  semantic read of one book's content. Only the generated client carries the
+  endpoint's own name.
+
+## Amendment 2026-09-04 — `/search` degrades to books instead of refusing
+
+`GET /search` is no longer gated on the embeddings feature. Without an embedding
+provider it answers 200 with the books matched by title and author and three
+empty ranked groups, so the app bar's search box is offered on every server and
+a reader can always find a book by typing its name. `/semantic/related` and
+`/semantic/backfill` keep the 403 gate: they have no half that works without
+vectors.
+
+The branch lives in `GlobalSearchUseCase`, not in the router. Deciding what a
+read answers is the use case's job, and only it knows that the book matches come
+from a different query than the ranked groups; the router would have had to
+assemble a second response shape to make the same call. The use case reads
+`is_embeddings_enabled()` from `src.feature_flags` directly, as
+`RegisterUserUseCase` reads `is_user_registrations_enabled()` — the application
+layer is deliberately allowed that, and injecting the flag through the container
+would buy testability the flag patch already provides.
+
+The response schema is unchanged: a caller distinguishes the two modes by the
+groups being empty, or by reading `feature_flags.embeddings` from `/settings`,
+which the frontend already does. Nothing new in the body says "embeddings are
+off", because nothing needs to — an empty group means "nothing to say about this
+query" in both modes.
+
+`MAX_BOOK_MATCHES` stays 5 whether or not the ranked half ran. One cap in both
+modes; typing more of the title is what narrows an over-long list.
+
+On the frontend the gate moves from `ContentSearchField` out to its callers.
+`GlobalSearch` renders unconditionally and passes `requiresEmbeddings: false` to
+`useContentSearch`; the Notes and Structure fields wrap themselves in
+`EmbeddingFeature` and keep the hook's default. That default is what stops a
+book tab filtering on a query the reader cannot see: those tabs keep `search` in
+the URL, so a shared `?search=` link would otherwise empty a list whose input
+the flag has hidden.
+
+The MCP `search_library` tool drops its 403 branch; `find_related` keeps one.

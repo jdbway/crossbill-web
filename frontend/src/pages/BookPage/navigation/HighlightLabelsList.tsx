@@ -4,7 +4,6 @@ import { PaletteIcon } from '@/theme/Icons.tsx';
 import { getContrastColor } from '@/utils/colorUtils.ts';
 import { Box, Chip } from '@mui/material';
 
-import { filterChipBaseSx, filterChipOutlinedSx } from './filterChipStyles.ts';
 import { SidebarSectionHeader } from './SidebarSectionHeader.tsx';
 
 interface HighlightLabelsListProps {
@@ -55,12 +54,12 @@ const LabelChip = ({
           <span>{chipLabel}</span>
         </Box>
       }
-      size="small"
       variant={isSelected ? 'filled' : 'outlined'}
       onClick={onClick}
-      sx={{
-        ...filterChipBaseSx,
-        ...(isSelected
+      // The one chip that keeps its own colour when selected: it is the
+      // colour the highlight was made in on the device.
+      sx={
+        isSelected
           ? {
               backgroundColor: color,
               color: getContrastColor(color),
@@ -70,8 +69,8 @@ const LabelChip = ({
                 transform: 'translateY(-1px)',
               },
             }
-          : filterChipOutlinedSx),
-      }}
+          : undefined
+      }
     />
   );
 };
@@ -85,7 +84,11 @@ export const HighlightLabelsList = ({
   const { data } = useGetBookHighlightLabels(bookId);
   const labels = data?.items;
 
-  if (!labels || labels.length < 2) {
+  // Shown from one label up. Hiding the section below two meant a reader whose
+  // highlights are all one colour never learned labels can be named or
+  // recoloured — the editor is only reachable through the colour dot inside a
+  // highlight dialog.
+  if (!labels || labels.length === 0) {
     return null;
   }
 

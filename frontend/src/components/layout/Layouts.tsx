@@ -1,16 +1,4 @@
-import { Box, Container, styled } from '@mui/material';
-
-export const ContentWithSidebar = styled(Box)(({ theme }) => ({
-  display: 'grid',
-  gridTemplateColumns: '1fr 280px',
-  gap: theme.spacing(4),
-  alignItems: 'start',
-}));
-
-export const MiddleContentColumn = styled(Box)(({ theme }) => ({
-  gap: theme.spacing(4),
-  maxWidth: 864,
-}));
+import { Container, styled } from '@mui/material';
 
 /**
  * PageContainer's horizontal gutters, in theme spacing units. Stated here
@@ -19,6 +7,17 @@ export const MiddleContentColumn = styled(Box)(({ theme }) => ({
  * same value instead of copying it.
  */
 export const PAGE_GUTTER = { xs: 2, sm: 3 };
+
+/** What the sticky `AppBar` covers at the top of the viewport — MUI's `Toolbar`. */
+export const APP_BAR_HEIGHT = { xs: '56px', sm: '64px' };
+
+/** The bottom navigation's own height, plus air, plus the device's safe area. */
+export const BOTTOM_NAV_CLEARANCE = 'calc(56px + 24px + env(safe-area-inset-bottom))';
+
+export const BOTTOM_NAV_CLEARANCE_VAR = '--bottom-nav-clearance';
+
+/** MUI's snackbar offset below `lg`, plus a one-line `Alert`, plus air. */
+export const SNACKBAR_CLEARANCE = 'calc(24px + 48px + 8px)';
 
 export const PageContainer = styled(Container)(({ theme }) => ({
   paddingLeft: theme.spacing(PAGE_GUTTER.xs),

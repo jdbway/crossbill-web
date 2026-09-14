@@ -1,17 +1,20 @@
 import type {
+  BookSearchItem,
   DigestSearchItem,
+  GlobalSearchResults,
   HighlightSearchItem,
   NoteSearchItem,
-  SemanticSearchResults,
+  RankedContentGroups,
 } from '@/api/generated/model';
 import { linkOptions } from '@tanstack/react-router';
 
-type GlobalSearchRowType = 'highlight' | 'note' | 'chapter';
+type GlobalSearchRowType = 'highlight' | 'note' | 'chapter' | 'book';
 
 export interface GlobalSearchRow {
   key: string;
   type: GlobalSearchRowType;
-  score: number;
+  /** Cosine similarity, or null for a book: a name match is not a ranking. */
+  score: number | null;
   id: number;
   bookId: number;
   title: string | null;
@@ -22,6 +25,9 @@ export interface GlobalSearchRow {
   coverBlurhash: string | null;
 }
 
+/** A row the endpoint scored, and so one the merged ranking can order. */
+type RankedSearchRow = GlobalSearchRow & { score: number };
+
 export const MAX_GLOBAL_SEARCH_ROWS = 10;
 
 /** What a row's type is called wherever one is labelled to the reader. */
@@ -29,9 +35,10 @@ export const SEARCH_ROW_TYPE_LABELS: Record<GlobalSearchRowType, string> = {
   highlight: 'Highlight',
   note: 'Note',
   chapter: 'Chapter',
+  book: 'Book',
 };
 
-export const highlightRows = (hits: HighlightSearchItem[]): GlobalSearchRow[] =>
+const highlightRows = (hits: HighlightSearchItem[]): RankedSearchRow[] =>
   hits.map((hit) => ({
     key: `highlight-${hit.id}`,
     type: 'highlight',
@@ -51,7 +58,7 @@ export const highlightRows = (hits: HighlightSearchItem[]): GlobalSearchRow[] =>
  * page to open, since a note view only exists inside a book. They stay
  * invisible until a global note view exists.
  */
-export const noteRows = (hits: NoteSearchItem[]): GlobalSearchRow[] =>
+const noteRows = (hits: NoteSearchItem[]): RankedSearchRow[] =>
   hits.flatMap((hit) => {
     // `books[0]` is untyped as optional (noUncheckedIndexedAccess is off), so
     // the emptiness check is on `.length`, not on `book` itself.
@@ -75,7 +82,7 @@ export const noteRows = (hits: NoteSearchItem[]): GlobalSearchRow[] =>
   });
 
 /** A digest's row opens the chapter it summarises, not the digest itself. */
-export const digestRows = (hits: DigestSearchItem[]): GlobalSearchRow[] =>
+const digestRows = (hits: DigestSearchItem[]): RankedSearchRow[] =>
   hits.map((hit) => ({
     key: `digest-${hit.id}`,
     type: 'chapter',
@@ -90,25 +97,45 @@ export const digestRows = (hits: DigestSearchItem[]): GlobalSearchRow[] =>
     coverBlurhash: hit.cover_blurhash,
   }));
 
+/** The author rides on `chapterLabel`, the field the metadata line renders. */
+const bookRows = (hits: BookSearchItem[]): GlobalSearchRow[] =>
+  hits.map((hit) => ({
+    key: `book-${hit.id}`,
+    type: 'book',
+    score: null,
+    id: hit.id,
+    bookId: hit.id,
+    title: hit.title,
+    text: '',
+    bookTitle: hit.title,
+    chapterLabel: hit.author,
+    coverFile: hit.cover_file,
+    coverBlurhash: hit.cover_blurhash,
+  }));
+
 /**
- * Flattens the endpoint's three groups into one list ranked by score.
+ * Flattens the endpoint's three scored groups into one list ranked by score.
  *
  * Scores are cosine similarity on one scale for all three types, which is what
- * makes a merged ranking meaningful rather than a presentation trick.
+ * makes a merged ranking meaningful rather than a presentation trick. Both
+ * readers of the endpoint show one list: three lists side by side make the
+ * reader compare scores the ranking has already compared.
  */
-export const toGlobalSearchRows = (
-  results: SemanticSearchResults | undefined
-): GlobalSearchRow[] => {
+export const mergeSearchRows = (results: RankedContentGroups | undefined): GlobalSearchRow[] => {
   if (!results) return [];
 
   return [
     ...highlightRows(results.highlights),
     ...noteRows(results.notes),
     ...digestRows(results.digests),
-  ]
-    .sort((a, b) => b.score - a.score)
-    .slice(0, MAX_GLOBAL_SEARCH_ROWS);
+  ].sort((a, b) => b.score - a.score);
 };
+
+/** Books on top, capped by the endpoint rather than here; then the ranking cut to fit. */
+export const toGlobalSearchRows = (results: GlobalSearchResults | undefined): GlobalSearchRow[] =>
+  results
+    ? [...bookRows(results.books), ...mergeSearchRows(results).slice(0, MAX_GLOBAL_SEARCH_ROWS)]
+    : [];
 
 /**
  * The DOM id a row's element carries. Shared by the row itself and by
@@ -144,5 +171,8 @@ export const rowLinkProps = (row: GlobalSearchRow) => {
         params,
         search: { chapterId: row.id },
       });
+    // The book's landing page: `/book/$bookId` only redirects here.
+    case 'book':
+      return linkOptions({ to: '/book/$bookId/structure', params });
   }
 };

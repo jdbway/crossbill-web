@@ -913,6 +913,126 @@ class TestReadingStage:
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
+class TestUpdateBook:
+    """Test suite for PATCH /books/{book_id}."""
+
+    async def test_set_description(self, client: AsyncClient, test_book: models.Book) -> None:
+        response = await client.patch(
+            f"/api/v1/books/{test_book.id}",
+            json={"description": "A **quiet** book about attention."},
+        )
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+
+        details = await client.get(f"/api/v1/books/{test_book.id}")
+        assert details.json()["description"] == "A **quiet** book about attention."
+
+    async def test_clear_description(self, client: AsyncClient, test_book: models.Book) -> None:
+        await client.patch(f"/api/v1/books/{test_book.id}", json={"description": "Something"})
+
+        response = await client.patch(f"/api/v1/books/{test_book.id}", json={"description": None})
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        details = await client.get(f"/api/v1/books/{test_book.id}")
+        assert details.json()["description"] is None
+
+    async def test_blank_description_stored_as_null(
+        self, client: AsyncClient, test_book: models.Book
+    ) -> None:
+        """An emptied text field means "no blurb", not a book with a blank one."""
+        await client.patch(f"/api/v1/books/{test_book.id}", json={"description": "Something"})
+
+        await client.patch(f"/api/v1/books/{test_book.id}", json={"description": "   \n  "})
+
+        details = await client.get(f"/api/v1/books/{test_book.id}")
+        assert details.json()["description"] is None
+
+    async def test_omitted_field_leaves_book_untouched(
+        self, client: AsyncClient, test_book: models.Book
+    ) -> None:
+        """PATCH means partial: a key the client never sent must not be cleared."""
+        await client.patch(f"/api/v1/books/{test_book.id}", json={"description": "Kept"})
+
+        response = await client.patch(f"/api/v1/books/{test_book.id}", json={})
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        details = await client.get(f"/api/v1/books/{test_book.id}")
+        assert details.json()["description"] == "Kept"
+        assert details.json()["title"] == test_book.title
+
+    async def test_description_over_limit_rejected(
+        self, client: AsyncClient, test_book: models.Book
+    ) -> None:
+        response = await client.patch(
+            f"/api/v1/books/{test_book.id}",
+            json={"description": "x" * 5001},
+        )
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+
+    async def test_imported_description_truncated_to_limit(
+        self, client: AsyncClient, create_book_via_api: CreateBookFunc
+    ) -> None:
+        """An over-long publisher blurb is truncated on import, not rejected.
+
+        The plugin's ``/ereader/books`` contract must not start failing on a
+        long blurb, but a blurb stored over the limit would make every save
+        from the manage dialog a 422 the reader cannot explain.
+        """
+        book = await create_book_via_api(
+            {
+                "client_book_id": "long-blurb",
+                "title": "Long Blurb",
+                "description": "x" * 6000,
+            }
+        )
+
+        details = await client.get(f"/api/v1/books/{book.book_id}")
+        assert details.json()["description"] == "x" * 5000
+
+        response = await client.patch(
+            f"/api/v1/books/{book.book_id}",
+            json={"description": details.json()["description"]},
+        )
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+
+    async def test_unknown_key_rejected(self, client: AsyncClient, test_book: models.Book) -> None:
+        """An unrecognised key must 422, not silently no-op with a 204.
+
+        This endpoint's contract is defined by which keys are present in the
+        body (`model_fields_set`); a field it doesn't know about — like
+        `title`, not yet supported here — would otherwise parse to an empty
+        `model_fields_set` and the client would get a false-positive 204.
+        """
+        response = await client.patch(
+            f"/api/v1/books/{test_book.id}",
+            json={"title": "New title"},
+        )
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+
+    async def test_update_book_not_found(self, client: AsyncClient) -> None:
+        response = await client.patch("/api/v1/books/99999", json={"description": "Nope"})
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    async def test_cannot_edit_another_users_book(
+        self, client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        """A stranger's book is invisible, so editing it is a 404, not a 403."""
+        stranger = models.User(email="stranger-blurb@test.com")
+        db_session.add(stranger)
+        await db_session.commit()
+        await db_session.refresh(stranger)
+        theirs = await create_test_book(
+            db_session, user_id=stranger.id, title="Theirs", description="Their blurb"
+        )
+
+        response = await client.patch(
+            f"/api/v1/books/{theirs.id}", json={"description": "Mine now"}
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        await db_session.refresh(theirs)
+        assert theirs.description == "Their blurb"
+
+
 def parse_stamp(value: object) -> datetime:
     """Read a timestamp off a response, as UTC.
 
@@ -1030,93 +1150,206 @@ class TestBookLastSynced:
         assert stamped.year == datetime.now(UTC).year
 
 
-class TestRecentlySyncedBooks:
-    """The GET /books/recently-synced list behind the landing page's carousel."""
+STAMPS = (
+    datetime(2026, 3, 1, 12, 0, tzinfo=UTC),
+    datetime(2026, 6, 1, 12, 0, tzinfo=UTC),
+    datetime(2026, 8, 1, 12, 0, tzinfo=UTC),
+)
 
-    async def _synced_book(
-        self, db_session: AsyncSession, title: str, user_id: int, synced: datetime | None
+
+class TestRecentBooks:
+    """The GET /books/recent list behind the landing page's carousel."""
+
+    async def _book(
+        self,
+        db_session: AsyncSession,
+        title: str,
+        user_id: int,
+        viewed: datetime | None = None,
+        synced: datetime | None = None,
     ) -> models.Book:
-        """Create a book whose last sync happened at a chosen moment."""
+        """Create a book with a chosen pair of activity stamps."""
         book = await create_test_book(db_session=db_session, user_id=user_id, title=title)
+        book.last_viewed = viewed
         book.last_synced = synced
         await db_session.commit()
         return book
 
-    async def test_orders_by_most_recently_synced(
+    async def test_orders_views_and_syncs_by_the_later_stamp(
         self, client: AsyncClient, db_session: AsyncSession
     ) -> None:
-        """The book a device sent most recently leads the list."""
-        await self._synced_book(
-            db_session, "Older", DEFAULT_USER_ID, datetime(2026, 3, 1, tzinfo=UTC)
-        )
-        await self._synced_book(
-            db_session, "Newer", DEFAULT_USER_ID, datetime(2026, 8, 1, tzinfo=UTC)
-        )
-        await self._synced_book(
-            db_session, "Middle", DEFAULT_USER_ID, datetime(2026, 6, 1, tzinfo=UTC)
-        )
+        """One row: a sync and a view compete on the same timeline."""
+        await self._book(db_session, "Older sync", DEFAULT_USER_ID, synced=STAMPS[0])
+        await self._book(db_session, "Newest view", DEFAULT_USER_ID, viewed=STAMPS[2])
+        await self._book(db_session, "Middle view", DEFAULT_USER_ID, viewed=STAMPS[1])
 
-        response = await client.get("/api/v1/books/recently-synced")
+        response = await client.get("/api/v1/books/recent")
 
         assert response.status_code == status.HTTP_200_OK
         titles = [item["title"] for item in response.json()["items"]]
-        assert titles == ["Newer", "Middle", "Older"]
+        assert titles == ["Newest view", "Middle view", "Older sync"]
 
-    async def test_omits_books_that_never_synced(
+    async def test_a_book_with_both_stamps_appears_once(
         self, client: AsyncClient, db_session: AsyncSession
     ) -> None:
-        """A book no device has sent anything for has nothing to say here."""
-        await self._synced_book(
-            db_session, "Synced", DEFAULT_USER_ID, datetime(2026, 3, 1, tzinfo=UTC)
-        )
-        await self._synced_book(db_session, "Never Synced", DEFAULT_USER_ID, None)
+        """Viewing and syncing the same book earns it one slot, not two."""
+        await self._book(db_session, "Both", DEFAULT_USER_ID, viewed=STAMPS[0], synced=STAMPS[2])
+        await self._book(db_session, "Other", DEFAULT_USER_ID, viewed=STAMPS[1])
 
-        response = await client.get("/api/v1/books/recently-synced")
+        response = await client.get("/api/v1/books/recent")
+
+        titles = [item["title"] for item in response.json()["items"]]
+        assert titles == ["Both", "Other"]
+
+    async def test_omits_books_neither_opened_nor_synced(
+        self, client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        """A book nothing has happened to has nothing to say here."""
+        await self._book(db_session, "Synced", DEFAULT_USER_ID, synced=STAMPS[0])
+        await self._book(db_session, "Untouched", DEFAULT_USER_ID)
+
+        response = await client.get("/api/v1/books/recent")
 
         titles = [item["title"] for item in response.json()["items"]]
         assert titles == ["Synced"]
 
     async def test_limit_caps_the_list(self, client: AsyncClient, db_session: AsyncSession) -> None:
         """The carousel asks for a handful, not the whole library."""
-        for month in (1, 2, 3):
-            await self._synced_book(
-                db_session, f"Book {month}", DEFAULT_USER_ID, datetime(2026, month, 1, tzinfo=UTC)
-            )
+        for index, stamp in enumerate(STAMPS):
+            await self._book(db_session, f"Book {index}", DEFAULT_USER_ID, viewed=stamp)
 
-        response = await client.get("/api/v1/books/recently-synced?limit=2")
+        response = await client.get("/api/v1/books/recent?limit=2")
 
         titles = [item["title"] for item in response.json()["items"]]
-        assert titles == ["Book 3", "Book 2"]
+        assert titles == ["Book 2", "Book 1"]
 
     async def test_never_returns_another_users_books(
         self, client: AsyncClient, db_session: AsyncSession
     ) -> None:
-        """A stranger's e-reader activity must not surface on this user's page."""
+        """A stranger's reading must not surface on this user's page."""
         stranger = models.User(email="stranger@test.com")
         db_session.add(stranger)
         await db_session.commit()
         await db_session.refresh(stranger)
-        await self._synced_book(
-            db_session, "Theirs", stranger.id, datetime(2026, 8, 20, tzinfo=UTC)
-        )
-        await self._synced_book(
-            db_session, "Mine", DEFAULT_USER_ID, datetime(2026, 3, 1, tzinfo=UTC)
-        )
+        await self._book(db_session, "Theirs", stranger.id, synced=STAMPS[2])
+        await self._book(db_session, "Mine", DEFAULT_USER_ID, viewed=STAMPS[0])
 
-        response = await client.get("/api/v1/books/recently-synced")
+        response = await client.get("/api/v1/books/recent")
 
         titles = [item["title"] for item in response.json()["items"]]
         assert titles == ["Mine"]
 
-    async def test_includes_the_stamp_itself(
+    async def test_includes_both_stamps(
         self, client: AsyncClient, db_session: AsyncSession
     ) -> None:
-        """The row carries the timestamp it was ordered by."""
-        await self._synced_book(
-            db_session, "Stamped", DEFAULT_USER_ID, datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
-        )
+        """The row carries the timestamps it was ordered by."""
+        await self._book(db_session, "Stamped", DEFAULT_USER_ID, viewed=STAMPS[0], synced=STAMPS[1])
 
-        response = await client.get("/api/v1/books/recently-synced")
+        response = await client.get("/api/v1/books/recent")
 
         item = response.json()["items"][0]
-        assert parse_stamp(item["last_synced"]) == datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
+        assert parse_stamp(item["last_viewed"]) == STAMPS[0]
+        assert parse_stamp(item["last_synced"]) == STAMPS[1]
+
+
+class TestBookCounts:
+    """The counts the library cards render, on the list and on the details view."""
+
+    async def _add_note(
+        self, client: AsyncClient, book_id: int, title: str, kind: str | None = None
+    ) -> None:
+        payload: dict[str, object] = {"title": title, "book_id": book_id}
+        if kind is not None:
+            payload["kind"] = kind
+        response = await client.post("/api/v1/notes", json=payload)
+        assert response.status_code == status.HTTP_201_CREATED
+
+    async def test_note_count_skips_gists_and_keeps_untyped_notes(
+        self, client: AsyncClient, test_book: models.Book
+    ) -> None:
+        await self._add_note(client, test_book.id, "Raskolnikov", kind="character")
+        await self._add_note(client, test_book.id, "Untyped")
+        await self._add_note(client, test_book.id, "Chapter 1 in brief", kind="gist")
+
+        response = await client.get("/api/v1/books/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["items"][0]["note_count"] == 2
+
+    async def test_note_count_is_zero_without_notes(
+        self, client: AsyncClient, test_book: models.Book
+    ) -> None:
+        response = await client.get("/api/v1/books/")
+
+        assert response.json()["items"][0]["note_count"] == 0
+
+    async def test_note_count_ignores_another_users_notes(
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
+        test_book: models.Book,
+        test_user: models.User,
+    ) -> None:
+        stranger = models.User(email="stranger@example.com", hashed_password="x")
+        db_session.add(stranger)
+        await db_session.commit()
+        note = models.Note(user_id=stranger.id, title="Not mine", kind="concept")
+        note.books.append(test_book)
+        db_session.add(note)
+        await db_session.commit()
+
+        response = await client.get("/api/v1/books/")
+
+        assert response.json()["items"][0]["note_count"] == 0
+
+    async def test_details_highlight_count_includes_chapterless_highlights(
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
+        test_book: models.Book,
+        test_chapter: models.Chapter,
+        test_user: models.User,
+    ) -> None:
+        """The chapter tree drops highlights with no chapter; the count must not."""
+        await create_test_highlight(
+            db_session,
+            test_book,
+            test_user.id,
+            "In a chapter",
+            "2024-01-01 10:00:00",
+            chapter_id=test_chapter.id,
+        )
+        await create_test_highlight(
+            db_session, test_book, test_user.id, "No chapter", "2024-01-01 11:00:00"
+        )
+
+        response = await client.get(f"/api/v1/books/{test_book.id}")
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["highlight_count"] == 2
+        in_tree = sum(len(chapter["highlights"]) for chapter in data["chapters"])
+        assert in_tree == 1
+
+    async def test_details_highlight_count_skips_deleted_highlights(
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
+        test_book: models.Book,
+        test_user: models.User,
+    ) -> None:
+        await create_test_highlight(
+            db_session, test_book, test_user.id, "Live", "2024-01-01 10:00:00"
+        )
+        await create_test_highlight(
+            db_session,
+            test_book,
+            test_user.id,
+            "Gone",
+            "2024-01-01 11:00:00",
+            deleted_at=datetime(2024, 2, 1, tzinfo=UTC),
+        )
+
+        response = await client.get(f"/api/v1/books/{test_book.id}")
+
+        assert response.json()["highlight_count"] == 1

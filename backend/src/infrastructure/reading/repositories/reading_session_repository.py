@@ -6,15 +6,18 @@ Uses ReadingSessionMapper internally for conversions.
 """
 
 import logging
+from collections.abc import Mapping
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, literal, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.application.reading.protocols.reading_session_repository import BulkCreateResult
+from src.application.web_reader.anchors import Locator
 from src.domain.common.value_objects import BookId, HighlightId, ReadingSessionId, UserId
 from src.domain.common.value_objects.position import Position
 from src.domain.reading.entities.reading_session import ReadingSession
+from src.domain.reading.exceptions import ReadingSessionNotFoundError
 from src.infrastructure.reading.mappers.reading_session_mapper import ReadingSessionMapper
 from src.infrastructure.reading.orm.associations import reading_session_highlights
 from src.infrastructure.reading.orm.reading_session_model import ReadingSession as ReadingSessionORM
@@ -174,50 +177,36 @@ class ReadingSessionRepository:
     async def find_by_id(
         self, session_id: ReadingSessionId, user_id: UserId
     ) -> ReadingSession | None:
-        """
-        Load reading session by ID.
+        """Get one of the user's reading sessions by id.
 
-        Args:
-            session_id: Session ID value object
-            user_id: User ID for authorization check
-
-        Returns:
-            ReadingSession domain entity if found, None otherwise
+        The ``user_id`` filter is not decoration: this is reached from a row that
+        merely names a session id, and somebody else's session must read as absent.
         """
         stmt = select(ReadingSessionORM).where(
             ReadingSessionORM.id == session_id.value,
             ReadingSessionORM.user_id == user_id.value,
         )
-        result = await self.db.execute(stmt)
-        orm_model = result.scalar_one_or_none()
-
-        if not orm_model:
-            return None
-
-        return self.mapper.to_domain(orm_model)
+        orm = (await self.db.execute(stmt)).scalar_one_or_none()
+        return self.mapper.to_domain(orm) if orm else None
 
     async def save(self, session: ReadingSession) -> ReadingSession:
-        """
-        Update existing reading session.
+        """Insert a session, or update the one it already is, returning it with its real id."""
+        if session.id.value == 0:
+            orm = self.mapper.to_orm(session)
+            self.db.add(orm)
+        else:
+            stored = await self.db.get(ReadingSessionORM, session.id.value)
+            if stored is None:
+                raise ReadingSessionNotFoundError(session.id.value)
+            identity = stored.content_hash
+            orm = self.mapper.to_orm(session, stored)
+            # None of what identifies a session changes as it is extended, but the entity
+            # recomputes the hash from a `start_time` whose zone the store may have
+            # dropped -- and a rewritten one no longer de-duplicates against anything.
+            orm.content_hash = identity
 
-        Primarily used for updating ai_summary field.
-
-        Args:
-            session: ReadingSession domain entity to save
-
-        Returns:
-            ReadingSession with any updated values from database
-        """
-        stmt = select(ReadingSessionORM).where(ReadingSessionORM.id == session.id.value)
-        result = await self.db.execute(stmt)
-        existing_orm = result.scalar_one()
-
-        # Update ORM model using mapper
-        self.mapper.to_orm(session, existing_orm)
         await self.db.commit()
-        await self.db.refresh(existing_orm)
-
-        return self.mapper.to_domain(existing_orm)
+        return self.mapper.to_domain(orm)
 
     async def bulk_update_positions(
         self,
@@ -239,6 +228,55 @@ class ReadingSessionRepository:
 
         await self.db.commit()
         return len(position_updates)
+
+    async def bulk_update_locators(
+        self,
+        locators: Mapping[ReadingSessionId, tuple[Locator | None, Locator | None]],
+        source_hash: str,
+    ) -> None:
+        """Write both endpoints' derived Locators and their source digest onto stored sessions.
+
+        Rolled back before it is re-raised: the caller carries on after a failure,
+        and an uncleared failed statement would abort the write that follows it.
+        """
+        if not locators:
+            return
+
+        try:
+            await self.db.execute(
+                update(ReadingSessionORM),
+                [
+                    {
+                        "id": session_id.value,
+                        "start_locator": start.to_dict() if start else None,
+                        "end_locator": end.to_dict() if end else None,
+                        "locator_source_hash": source_hash,
+                    }
+                    for session_id, (start, end) in locators.items()
+                ],
+            )
+            await self.db.commit()
+        except Exception:
+            await self.db.rollback()
+            raise
+
+    async def record_locator(
+        self, session_id: ReadingSessionId, locator: Locator, source_hash: str
+    ) -> None:
+        """Write where a session has reached, seeding its start the first time."""
+        # Typed from the column: inside `coalesce` there is nothing for the driver to
+        # infer a JSON bind from, and a bare dict reaches SQLite as an unsupported type.
+        reached = literal(locator.to_dict(), ReadingSessionORM.start_locator.type)
+        await self.db.execute(
+            update(ReadingSessionORM)
+            .where(ReadingSessionORM.id == session_id.value)
+            .values(
+                start_locator=func.coalesce(ReadingSessionORM.start_locator, reached),
+                end_locator=reached,
+                locator_source_hash=source_hash,
+            )
+        )
+        await self.db.commit()
 
     async def link_highlights_to_sessions(
         self,

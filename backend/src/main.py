@@ -30,6 +30,7 @@ from src.domain.common.exceptions import (
     EntityNotFoundError,
     ValidationError,
 )
+from src.domain.web_reader.exceptions import BookFileUnreadableError, UnresolvablePositionError
 from src.infrastructure.common.client_ip import client_ip, client_ip_from_scope, proxy_chain
 from src.infrastructure.common.openapi import operation_id
 from src.infrastructure.common.rate_limit import RateLimitMiddleware, limiter
@@ -56,16 +57,24 @@ from src.infrastructure.library.routers import covers as library_covers
 from src.infrastructure.library.routers import ereader as library_ereader
 from src.infrastructure.notes.routers import notes as notes_router
 from src.infrastructure.reading.routers import (
+    book_statistics,
     bookmarks,
     chapter_content,
     chapter_digest,
     highlight_labels,
     highlights,
+    library_reading_activity,
     reading_sessions,
+    recent_captures,
 )
 from src.infrastructure.reflection.routers import book_reflections as reflection_router
+from src.infrastructure.semantic.routers import search as search_router
 from src.infrastructure.semantic.routers import semantic as semantic_router
 from src.infrastructure.tagging.routers import tags as tagging_tags
+from src.infrastructure.web_reader.routers import (
+    highlight_locators as web_reader_highlight_locators,
+)
+from src.infrastructure.web_reader.routers import readium as web_reader_readium
 
 settings = get_settings()
 
@@ -302,17 +311,34 @@ class SecurityHeadersMiddleware:
                 if settings.ENVIRONMENT != "development":
                     headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
                     headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-                    headers["Content-Security-Policy"] = (
-                        "default-src 'self'; "
-                        "script-src 'self'; "
-                        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-                        "img-src 'self' data: blob:; "
-                        "font-src 'self' https://fonts.gstatic.com; "
-                        "connect-src 'self'; "
-                        "frame-ancestors 'none'; "
-                        "base-uri 'self'; "
-                        "form-action 'self'"
-                    )
+                    # `MutableHeaders` assignment replaces rather than appends,
+                    # so a route that set its own, narrower policy keeps it.
+                    if "content-security-policy" not in headers:
+                        headers["Content-Security-Policy"] = (
+                            "default-src 'self'; "
+                            # Readium injects its own scripts as
+                            # `<script src="blob:...">` and its CSS as a blob
+                            # stylesheet. A book's own scripts take nothing from
+                            # this: they are inline or same-origin.
+                            "script-src 'self' blob:; "
+                            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com blob:; "
+                            "img-src 'self' data: blob:; "
+                            "font-src 'self' https://fonts.gstatic.com; "
+                            "connect-src 'self'; "
+                            # Readium frames each publication resource as a
+                            # blob document.
+                            "frame-src 'self' blob:; "
+                            # A blob document inherits the policy of the context
+                            # that created it, and WebKit enforces the inherited
+                            # `frame-ancestors` against that document's own
+                            # ancestor -- so `'none'` makes Safari refuse every
+                            # publication frame the reader builds. This also
+                            # supersedes `X-Frame-Options` above, which a browser
+                            # ignores once a response carries `frame-ancestors`.
+                            "frame-ancestors 'self'; "
+                            "base-uri 'self'; "
+                            "form-action 'self'"
+                        )
             await send(message)
 
         await self.app(scope, receive, wrapped_send)
@@ -339,6 +365,8 @@ DOMAIN_ERROR_STATUS_MAP: list[tuple[type[DomainError], int, str]] = [
     (AuthenticationError, 401, "authentication_error"),
     (AuthorizationError, 403, "authorization_error"),
     (BusinessRuleViolationError, 400, "bad_request"),
+    (UnresolvablePositionError, 422, "unprocessable_entity"),
+    (BookFileUnreadableError, 503, "service_unavailable"),
 ]
 
 SAFE_MESSAGES: dict[int, str] = {
@@ -347,7 +375,9 @@ SAFE_MESSAGES: dict[int, str] = {
     401: "Authentication failed.",
     403: "You do not have permission to perform this action.",
     409: "The resource already exists or conflicts with current state.",
+    422: "The request was understood but could not be applied to this resource.",
     500: "An unexpected error occurred.",
+    503: "The server cannot serve this request at the moment.",
 }
 
 
@@ -423,6 +453,9 @@ app.include_router(library_covers.router, prefix=settings.API_V1_PREFIX)
 app.include_router(highlights.router, prefix=settings.API_V1_PREFIX)
 app.include_router(tagging_tags.router, prefix=settings.API_V1_PREFIX)
 app.include_router(reading_sessions.router, prefix=settings.API_V1_PREFIX)
+app.include_router(book_statistics.router, prefix=settings.API_V1_PREFIX)
+app.include_router(library_reading_activity.router, prefix=settings.API_V1_PREFIX)
+app.include_router(recent_captures.router, prefix=settings.API_V1_PREFIX)
 app.include_router(bookmarks.router, prefix=settings.API_V1_PREFIX)
 app.include_router(chapter_digest.router, prefix=settings.API_V1_PREFIX)
 app.include_router(chapter_digest.book_digest_router, prefix=settings.API_V1_PREFIX)
@@ -450,8 +483,13 @@ app.include_router(job_batches.router, prefix=settings.API_V1_PREFIX)
 app.include_router(notes_router.router, prefix=settings.API_V1_PREFIX)
 app.include_router(reflection_router.router, prefix=settings.API_V1_PREFIX)
 
+# Web reader
+app.include_router(web_reader_readium.router, prefix=settings.API_V1_PREFIX)
+app.include_router(web_reader_highlight_locators.router, prefix=settings.API_V1_PREFIX)
+
 # Semantic search
 app.include_router(semantic_router.router, prefix=settings.API_V1_PREFIX)
+app.include_router(search_router.router, prefix=settings.API_V1_PREFIX)
 
 # Common
 app.include_router(settings_router.router, prefix=settings.API_V1_PREFIX)

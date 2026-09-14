@@ -3,12 +3,19 @@ import { useResetOnChange } from '@/hooks/useResetOnChange.ts';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { useCallback, useState } from 'react';
 
-/** Book tab routes that share the tag (and optionally search) URL filters. */
+/**
+ * Book tab routes that share the tag (and optionally search) URL filters.
+ *
+ * Reflection and statistics carry none of these filters today, but they are
+ * listed so the ordering param they gain in #684 has somewhere to live.
+ */
 type BookTabFilterRoute =
   | '/book/$bookId/highlights'
   | '/book/$bookId/flashcards'
   | '/book/$bookId/notes'
-  | '/book/$bookId/structure';
+  | '/book/$bookId/structure'
+  | '/book/$bookId/reflection'
+  | '/book/$bookId/statistics';
 
 /** The URL filters read/written by these tabs. */
 interface BookTabSearch {
@@ -64,6 +71,26 @@ export const useBookTabFilters = (from: BookTabFilterRoute) => {
     [navigate]
   );
 
+  /**
+   * Unsets every filter the page holds: the search and tag params owned here,
+   * plus any extra param names the caller passes (a label, a date range, a
+   * kind selection). Pages differ only in that list.
+   */
+  const clearFilters = useCallback(
+    (alsoClear: string[] = []) => {
+      setSelectedTagId(undefined);
+      navigate({
+        search: (prev) => {
+          const next: Record<string, unknown> = { ...prev, search: undefined, tagId: undefined };
+          for (const key of alsoClear) next[key] = undefined;
+          return next;
+        },
+        replace: true,
+      });
+    },
+    [navigate]
+  );
+
   const handleChapterClick = useCallback(
     (chapterId: number) => {
       if (urlSearch) {
@@ -87,5 +114,6 @@ export const useBookTabFilters = (from: BookTabFilterRoute) => {
     handleSearch,
     handleTagClick,
     handleChapterClick,
+    clearFilters,
   };
 };

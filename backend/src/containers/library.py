@@ -13,6 +13,9 @@ from src.application.library.commands.book_management.delete_book_use_case impor
 from src.application.library.commands.book_management.mark_book_viewed_use_case import (
     MarkBookViewedUseCase,
 )
+from src.application.library.commands.book_management.update_book_use_case import (
+    UpdateBookUseCase,
+)
 from src.application.library.commands.book_management.update_reading_stage_use_case import (
     UpdateReadingStageUseCase,
 )
@@ -23,11 +26,8 @@ from src.application.library.queries.get_books_with_counts_use_case import (
 from src.application.library.queries.get_ereader_metadata_use_case import (
     GetEreaderMetadataUseCase,
 )
-from src.application.library.queries.get_recently_synced_books_use_case import (
-    GetRecentlySyncedBooksUseCase,
-)
-from src.application.library.queries.get_recently_viewed_books_use_case import (
-    GetRecentlyViewedBooksUseCase,
+from src.application.library.queries.get_recent_books_use_case import (
+    GetRecentBooksUseCase,
 )
 
 
@@ -43,6 +43,8 @@ class LibraryContainer(containers.DeclarativeContainer):
     epub_parser_service = providers.Dependency()
     epub_position_index_service = providers.Dependency()
     cover_image_service = providers.Dependency()
+    publication_repository = providers.Dependency()
+    backfill_book_locators_use_case = providers.Dependency()
 
     # Read models: the query adapters (port implementations) plus the read use
     # cases that routers call, mirroring how commands are exposed.
@@ -60,6 +62,9 @@ class LibraryContainer(containers.DeclarativeContainer):
         position_index_service=epub_position_index_service,
         highlight_repository=highlight_repository,
         session_repository=reading_session_repository,
+        publication_parser=epub_parser_service,
+        publication_repository=publication_repository,
+        backfill_book_locators_use_case=backfill_book_locators_use_case,
     )
     ebook_deletion_use_case = providers.Factory(
         EbookDeletionUseCase,
@@ -84,6 +89,10 @@ class LibraryContainer(containers.DeclarativeContainer):
         UpdateReadingStageUseCase,
         book_repository=book_repository,
     )
+    update_book_use_case = providers.Factory(
+        UpdateBookUseCase,
+        book_repository=book_repository,
+    )
 
     # Read models
     get_book_details_use_case = providers.Factory(
@@ -95,12 +104,8 @@ class LibraryContainer(containers.DeclarativeContainer):
         GetBooksWithCountsUseCase,
         book_list_query=book_list_query,
     )
-    get_recently_viewed_books_use_case = providers.Factory(
-        GetRecentlyViewedBooksUseCase,
-        book_list_query=book_list_query,
-    )
-    get_recently_synced_books_use_case = providers.Factory(
-        GetRecentlySyncedBooksUseCase,
+    get_recent_books_use_case = providers.Factory(
+        GetRecentBooksUseCase,
         book_list_query=book_list_query,
     )
     get_ereader_metadata_use_case = providers.Factory(

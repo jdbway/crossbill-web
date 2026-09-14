@@ -1,4 +1,4 @@
-import { createTheme, type Theme } from '@mui/material/styles';
+import { createTheme, type CSSProperties, type Theme } from '@mui/material/styles';
 
 const colors = {
   amber: {
@@ -8,6 +8,7 @@ const colors = {
   },
   stone: {
     50: '#fafaf9',
+    100: '#f5f5f4',
     400: '#a8a29e',
     600: '#78716c',
     700: '#57534e',
@@ -19,18 +20,32 @@ const colors = {
  * Custom colors used throughout the application.
  * These are consolidated from various rgba() calls in components.
  */
+const FONT_FAMILY = ['"Lora"', 'Georgia', 'serif'].join(',');
+
 const customColors = {
   // Highlight colors for scroll-to-highlight effects
   highlightBlue: {
     light: 'rgba(25, 118, 210, 0.08)', // Light blue for highlight effect (BookPage)
   },
 
-  // Hover and interaction colors
+  // Translucent whites, for the one place they belong: over the amber app bar,
+  // where what sits behind them is known and fixed.
   whiteOverlay: {
     light: 'rgba(255, 255, 255, 0.1)', // White overlay for hover effects (AppBar)
     hover: 'rgba(255, 255, 255, 0.18)', // Search field surface on hover (AppBar)
-    group: 'rgba(255, 255, 255, 0.6)', // Tag group surface over page background (TagsList)
-    ungrouped: 'rgba(255, 255, 255, 0.4)', // Ungrouped tag bucket surface (TagsList)
+  },
+
+  // A scrim for text laid over cover art. Unlike the whites above, what sits
+  // behind this is unknown -- darkening it is the whole point.
+  coverScrim: {
+    strip: 'rgba(0, 0, 0, 0.70)',
+  },
+
+  // Opaque panel fills. A white veil reads only against a darker page — these
+  // are the same on the stone page background and on a paper-white drawer.
+  surfaces: {
+    tagGroup: colors.stone[100], // Tag group panel (TagsList)
+    tagUngrouped: colors.stone[50], // Ungrouped tag bucket, with its dashed border
   },
 
   // Shadow colors
@@ -56,7 +71,26 @@ const customColors = {
   backgrounds: {
     subtle: 'rgba(0, 0, 0, 0.05)', // Very subtle background (dialog ProgressBar track, markdown code blocks, chat bubbles)
   },
+
+  // The reading-activity grid's two ends. Every shade between them is
+  // interpolated, so a day the book was not opened and the reader's best day
+  // are the only two colours stated here.
+  activityGrid: {
+    empty: colors.stone[100], // A day with no reading
+    full: colors.amber[700], // The book's heaviest reading days, as primary.main
+  },
+
+  // The only colours in the app that leave it: the reader hands them to the
+  // book's own stylesheet, which paints them inside the book's frame.
+  readerPage: {
+    light: { background: colors.stone[50], text: colors.stone[900] },
+    dark: { background: colors.stone[900], text: colors.stone[100] },
+  },
 };
+
+const COARSE_POINTER_QUERY = '@media (pointer: coarse)';
+
+const TOUCH_TARGET_MIN = 48;
 
 /**
  * Shared markdown styles for consistent rendering across the application.
@@ -124,6 +158,21 @@ declare module '@mui/material/styles' {
   interface ThemeOptions {
     customColors?: typeof customColors;
   }
+  interface TypographyVariants {
+    pageTitle: CSSProperties;
+    sectionTitle: CSSProperties;
+  }
+  interface TypographyVariantsOptions {
+    pageTitle?: CSSProperties;
+    sectionTitle?: CSSProperties;
+  }
+}
+
+declare module '@mui/material/Typography' {
+  interface TypographyPropsVariantOverrides {
+    pageTitle: true;
+    sectionTitle: true;
+  }
 }
 
 export const theme = createTheme({
@@ -152,7 +201,7 @@ export const theme = createTheme({
     },
   },
   typography: {
-    fontFamily: ['"Lora"', 'Georgia', 'serif'].join(','),
+    fontFamily: FONT_FAMILY,
     h1: {
       fontSize: '2rem',
       fontWeight: 900,
@@ -190,6 +239,20 @@ export const theme = createTheme({
     body2: {
       fontWeight: 200, // Very light
       lineHeight: 1.6,
+    },
+    pageTitle: {
+      fontFamily: FONT_FAMILY,
+      fontSize: '1.4rem',
+      fontWeight: 900,
+      lineHeight: 1.3,
+      color: colors.amber[700],
+    },
+    sectionTitle: {
+      fontFamily: FONT_FAMILY,
+      fontSize: '1.1rem',
+      fontWeight: 800,
+      letterSpacing: '0.01em',
+      color: colors.amber[700],
     },
   },
   shape: {
@@ -232,13 +295,89 @@ export const theme = createTheme({
         },
       },
     },
+    MuiButtonBase: {
+      styleOverrides: {
+        root: ({ theme: t }) => ({
+          '&:focus-visible': {
+            outline: `2px solid ${t.palette.primary.main}`,
+            outlineOffset: -2,
+          },
+        }),
+      },
+    },
     MuiButton: {
+      defaultProps: { disableFocusRipple: true },
       styleOverrides: {
         root: {
           textTransform: 'none',
           borderRadius: 24,
           fontWeight: 500,
         },
+        contained: ({ theme: t }) => ({
+          '&:focus-visible': { outlineColor: t.palette.primary.contrastText },
+        }),
+      },
+    },
+    MuiIconButton: {
+      defaultProps: { disableFocusRipple: true },
+      styleOverrides: {
+        root: {
+          [COARSE_POINTER_QUERY]: {
+            minWidth: TOUCH_TARGET_MIN,
+            minHeight: TOUCH_TARGET_MIN,
+            '.MuiInputBase-root &': {
+              minWidth: 'unset',
+              minHeight: 'unset',
+            },
+          },
+        },
+      },
+    },
+    MuiTypography: {
+      defaultProps: {
+        variantMapping: {
+          pageTitle: 'h2',
+          sectionTitle: 'h2',
+        },
+      },
+    },
+    MuiChip: {
+      defaultProps: { size: 'small' },
+      styleOverrides: {
+        root: ({ theme: t }) => ({
+          variants: [
+            {
+              props: ({ ownerState }) => Boolean(ownerState.clickable),
+              style: {
+                padding: '2px 4px',
+                transition: 'all 0.2s ease',
+              },
+            },
+            {
+              props: ({ ownerState }) =>
+                Boolean(ownerState.clickable) && ownerState.variant === 'outlined',
+              style: {
+                borderColor: t.palette.divider,
+                '&:hover': {
+                  backgroundColor: t.palette.action.hover,
+                  borderColor: t.palette.secondary.light,
+                  transform: 'translateY(-1px)',
+                },
+              },
+            },
+            {
+              props: ({ ownerState }) =>
+                Boolean(ownerState.clickable) && ownerState.variant === 'filled',
+              style: {
+                '&:hover': {
+                  backgroundColor: t.palette.primary.dark,
+                  transform: 'translateY(-1px)',
+                },
+                '&:focus-visible': { outlineColor: t.palette.primary.contrastText },
+              },
+            },
+          ],
+        }),
       },
     },
     MuiCard: {

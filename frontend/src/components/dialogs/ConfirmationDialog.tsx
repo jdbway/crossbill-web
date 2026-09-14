@@ -1,20 +1,10 @@
-import {
-  Button,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogContentText,
-  DialogTitle,
-  useMediaQuery,
-  useTheme,
-} from '@mui/material';
-import type { ReactNode } from 'react';
+import { Button, Dialog, DialogActions, DialogContent, DialogContentText } from '@mui/material';
+import { useId, type ReactNode } from 'react';
 
 interface ConfirmationDialogProps {
   open: boolean;
   onClose: () => void;
   onConfirm: () => void;
-  title: string;
   message: ReactNode;
   confirmText?: string;
   cancelText?: string;
@@ -26,15 +16,13 @@ export const ConfirmationDialog = ({
   open,
   onClose,
   onConfirm,
-  title,
   message,
   confirmText = 'Confirm',
   cancelText = 'Cancel',
   confirmColor = 'primary',
   isLoading = false,
 }: ConfirmationDialogProps) => {
-  const theme = useTheme();
-  const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
+  const messageId = useId();
 
   return (
     <Dialog
@@ -42,10 +30,10 @@ export const ConfirmationDialog = ({
       onClose={isLoading ? undefined : onClose}
       maxWidth="xs"
       fullWidth
-      fullScreen={fullScreen}
+      role="alertdialog"
+      aria-labelledby={messageId}
     >
-      <DialogTitle>{title}</DialogTitle>
-      <DialogContent>
+      <DialogContent id={messageId}>
         {typeof message === 'string' ? <DialogContentText>{message}</DialogContentText> : message}
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2 }}>

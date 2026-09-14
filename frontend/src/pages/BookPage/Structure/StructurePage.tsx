@@ -7,12 +7,14 @@ import type {
 import { useGetNotesForBook } from '@/api/generated/notes/notes.ts';
 import { EmptyStateText } from '@/components/EmptyStateText.tsx';
 import { useUrlEntityDialog } from '@/components/dialogs/useUrlEntityDialog.ts';
-import { SemanticSearchField } from '@/components/search/SemanticSearchField.tsx';
-import { useSemanticSearch } from '@/components/search/useSemanticSearch.ts';
-import { PageTitle } from '@/components/typography/PageTitle.tsx';
+import { EmbeddingFeature } from '@/components/features/EmbeddingFeature.tsx';
+import { PageHeader } from '@/components/layout/PageHeader.tsx';
+import { ContentSearchField } from '@/components/search/ContentSearchField.tsx';
+import { useContentSearch } from '@/components/search/useContentSearch.ts';
 import { useBookPage } from '@/pages/BookPage/BookPageContext';
 import { useBookTabFilters } from '@/pages/BookPage/common/useBookTabFilters.ts';
-import { Alert, Box, Typography } from '@mui/material';
+import { BOOK_PAGE_LABELS } from '@/pages/BookPage/navigation/bookPageRoutes.ts';
+import { Alert } from '@mui/material';
 import { keyBy } from 'lodash';
 import { useMemo } from 'react';
 import { BatchDigestToolbar } from './BatchDigestToolbar';
@@ -67,6 +69,18 @@ export const StructurePage = () => {
     return map;
   }, [bookDigest]);
 
+  const eligibleChapterIds = useMemo(
+    () =>
+      new Set(
+        book.chapters.filter((chapter) => chapter.start_position != null).map(({ id }) => id)
+      ),
+    [book.chapters]
+  );
+
+  const existingSummaryCount = bookDigest
+    ? bookDigest.items.filter((digest) => eligibleChapterIds.has(digest.chapter_id)).length
+    : undefined;
+
   const { data: gistNotes } = useGetNotesForBook(book.id, {
     kind: 'gist',
   });
@@ -82,6 +96,21 @@ export const StructurePage = () => {
     }
     return map;
   }, [gistNotes]);
+
+  // Unfiltered: the chapter dialog's Notes tab counts every note linked to the
+  // chapter, gists included, and the row is meant to agree with it. Shares a
+  // query key with the book header's own notes fetch, so it costs no request.
+  const { data: allNotes } = useGetNotesForBook(book.id);
+
+  const noteCountByChapterId = useMemo(() => {
+    const map = new Map<number, number>();
+    for (const note of allNotes?.items ?? []) {
+      for (const chapterId of note.chapter_ids) {
+        map.set(chapterId, (map.get(chapterId) ?? 0) + 1);
+      }
+    }
+    return map;
+  }, [allNotes]);
 
   const childrenByParentId = useMemo(() => {
     const map = new Map<number | null, ChapterWithHighlights[]>();
@@ -126,7 +155,7 @@ export const StructurePage = () => {
   );
 
   const { searchText, handleSearch } = useBookTabFilters('/book/$bookId/structure');
-  const search = useSemanticSearch({ query: searchText, bookId: book.id });
+  const search = useContentSearch({ query: searchText, bookId: book.id });
 
   const matches = useMemo(
     () =>
@@ -159,56 +188,42 @@ export const StructurePage = () => {
     [childrenByParentId, readingPosition]
   );
 
-  if (book.chapters.length === 0) {
-    return (
-      <Box sx={{ p: 3, textAlign: 'center' }}>
-        <Typography
-          variant="body1"
-          sx={{
-            color: 'text.secondary',
-          }}
-        >
-          No chapter structure available for this book.
-        </Typography>
-      </Box>
-    );
-  }
-
   const topLevelChapters = visibleChildrenByParentId.get(null) ?? [];
 
   return (
     <>
-      <Box
-        sx={{
-          display: 'flex',
-          gap: 1,
-          alignItems: 'flex-start',
-          justifyContent: 'space-between',
-        }}
-      >
-        <PageTitle text="Structure of the book" />
-        <BatchDigestToolbar bookId={book.id} />
-      </Box>
-      <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
-        <Box sx={{ flexGrow: 1 }}>
-          <SemanticSearchField
-            value={searchText}
-            onChange={handleSearch}
-            placeholder="Search chapters by meaning…"
+      <PageHeader
+        title={BOOK_PAGE_LABELS.structure}
+        search={
+          <EmbeddingFeature>
+            <ContentSearchField
+              value={searchText}
+              onChange={handleSearch}
+              placeholder="Search chapters by meaning..."
+            />
+          </EmbeddingFeature>
+        }
+        action={
+          <BatchDigestToolbar
+            bookId={book.id}
+            eligibleChapterCount={eligibleChapterIds.size}
+            existingSummaryCount={existingSummaryCount}
           />
-        </Box>
-      </Box>
+        }
+      />
 
       {search.isError && (
-        <Alert severity="warning" sx={{ mx: 1, mb: 1 }}>
+        <Alert severity="warning" sx={{ mb: 2 }}>
           Search failed. Showing all chapters.
         </Alert>
       )}
 
-      {search.hasQuery && topLevelChapters.length === 0 ? (
-        <Box sx={{ p: 3, textAlign: 'center' }}>
-          <EmptyStateText>No chapters match “{searchText}”.</EmptyStateText>
-        </Box>
+      {book.chapters.length === 0 ? (
+        <EmptyStateText variant="page">
+          No chapter structure available for this book.
+        </EmptyStateText>
+      ) : search.hasQuery && topLevelChapters.length === 0 ? (
+        <EmptyStateText variant="page">No chapters match “{searchText}”.</EmptyStateText>
       ) : (
         topLevelChapters.map((chapter) => (
           <ChapterAccordion
@@ -218,6 +233,7 @@ export const StructurePage = () => {
             chapter={chapter}
             childrenByParentId={visibleChildrenByParentId}
             gistByChapterId={gistByChapterId}
+            noteCountByChapterId={noteCountByChapterId}
             bookId={book.id}
             readingPosition={readingPosition}
             currentChapterIds={currentChapterIds}

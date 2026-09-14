@@ -19,9 +19,7 @@ WORKDIR /app/frontend
 COPY frontend/ ./
 
 # Build frontend for production
-# Set VITE_API_URL to empty string so it uses relative paths (same origin)
 # Skip API generation since we copy the pre-generated files
-ENV VITE_API_URL=""
 RUN npm run routes:generate && npx tsc && npx vite build
 
 # Stage 2: Setup backend and serve everything
@@ -33,6 +31,10 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
   curl \
   gcc \
+  # uv shells out to git for the xpoint-cfi dependency, which is pinned to a
+  # tag rather than published to PyPI; without it the build fails with
+  # "Git executable not found".
+  git \
   libc6-dev \
   libffi-dev \
   && rm -rf /var/lib/apt/lists/*

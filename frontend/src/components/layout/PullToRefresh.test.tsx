@@ -5,6 +5,7 @@ import { bookApi } from '@tests/msw/bookApi';
 import { worker } from '@tests/msw/worker';
 import { http, HttpResponse } from 'msw';
 import { expect, test } from 'vitest';
+import { page, userEvent } from 'vitest/browser';
 
 const aBookListItem = (title: string): BookWithHighlightCount => ({
   id: 1,
@@ -35,8 +36,7 @@ function booksApi(title: string) {
         limit: 32,
       });
     }),
-    http.get('/api/v1/books/recently-synced', () => HttpResponse.json({ items: [] })),
-    http.get('/api/v1/books/recently-viewed', () => HttpResponse.json({ items: [] })),
+    http.get('/api/v1/books/recent', () => HttpResponse.json({ items: [] })),
   ];
 
   return { handlers, state };
@@ -77,15 +77,17 @@ const ORIGINAL_TITLE = 'The Pragmatic Reader';
 const REFRESHED_TITLE = 'The Refreshed Reader';
 
 /**
- * The front page on screen showing the original title, with the API primed to
+ * The library on screen showing the original title, with the API primed to
  * answer the next request with the refreshed one — so a refetch shows up as a
- * changed title rather than only as a request count.
+ * changed title rather than only as a request count. Pull-to-refresh is wired
+ * into the root layout and works on any page; the library is simply the one
+ * with a list that makes a refetch visible.
  */
-async function aFrontPageReadyToRefresh() {
+async function aBookListReadyToRefresh() {
   const { handlers, state } = booksApi(ORIGINAL_TITLE);
   worker.use(...handlers);
 
-  const screen = await renderApp({ path: '/' });
+  const screen = await renderApp({ path: '/library' });
   await expect.element(screen.getByText(ORIGINAL_TITLE)).toBeVisible();
 
   state.title = REFRESHED_TITLE;
@@ -93,14 +95,14 @@ async function aFrontPageReadyToRefresh() {
   return { screen, state };
 }
 
-type FrontPage = Awaited<ReturnType<typeof aFrontPageReadyToRefresh>>;
+type BookListPage = Awaited<ReturnType<typeof aBookListReadyToRefresh>>;
 
 /**
  * Nothing refetched: still the one request, still the original title. A
  * refresh fires its request off the touchend handler, so whatever the drag was
  * going to do has reached the handler well inside this window.
  */
-async function expectNoRefresh({ screen, state }: FrontPage) {
+async function expectNoRefresh({ screen, state }: BookListPage) {
   await new Promise((resolve) => setTimeout(resolve, 300));
 
   expect(state.requests).toBe(1);
@@ -108,7 +110,7 @@ async function expectNoRefresh({ screen, state }: FrontPage) {
 }
 
 test('pulling the page down past the threshold refetches the data on screen', async () => {
-  const { screen } = await aFrontPageReadyToRefresh();
+  const { screen } = await aBookListReadyToRefresh();
 
   dragDown(300);
 
@@ -116,7 +118,7 @@ test('pulling the page down past the threshold refetches the data on screen', as
 });
 
 test('a pull that stops short of the threshold refetches nothing', async () => {
-  const page = await aFrontPageReadyToRefresh();
+  const page = await aBookListReadyToRefresh();
 
   // 30px of pull once resistance is applied: under the 70px threshold.
   dragDown(60);
@@ -125,7 +127,7 @@ test('a pull that stops short of the threshold refetches nothing', async () => {
 });
 
 test('a sideways swipe is left to the horizontal scroller under it', async () => {
-  const page = await aFrontPageReadyToRefresh();
+  const page = await aBookListReadyToRefresh();
 
   // A carousel drag: far enough sideways to be horizontal, with the vertical
   // drift a finger leaves behind — and past the refresh threshold on its own.
@@ -151,4 +153,27 @@ test('a downward swipe inside an open dialog is left to the dialog to scroll', a
   const { prevented } = dragDown(300);
 
   expect(prevented).toBe(false);
+});
+
+/**
+ * Regression for #648: the filter drawer is an overlay like any dialog, so a
+ * swipe over it scrolls its filters instead of pulling the page behind it
+ * down into a refresh.
+ */
+test('a downward swipe inside the open filter drawer is left to the drawer to scroll', async () => {
+  await page.viewport(400, 800);
+  try {
+    const book = aBookDetails({ chapters: [aChapter({ highlights: [aHighlight({ id: 301 })] })] });
+    worker.use(...bookApi({ book }).handlers);
+
+    const screen = await renderApp({ path: '/book/1/highlights' });
+    await userEvent.click(screen.getByRole('button', { name: 'Open filters' }));
+    await expect.element(screen.getByRole('tab', { name: 'Chapters' })).toBeVisible();
+
+    const { prevented } = dragDown(300);
+
+    expect(prevented).toBe(false);
+  } finally {
+    await page.viewport(1440, 900);
+  }
 });

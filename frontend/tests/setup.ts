@@ -1,4 +1,5 @@
 import { AXIOS_INSTANCE } from '@/api/axios-instance';
+import { API_BASE_URL } from '@/api/base-url';
 import { clearTokens } from '@/api/token-manager';
 import { afterAll, afterEach, beforeAll } from 'vitest';
 import { cleanup } from 'vitest-browser-react';
@@ -6,11 +7,22 @@ import { pendingQueryClients } from './harness/renderApp';
 import { worker } from './msw/worker';
 
 // Relative URLs, so MSW handlers can be written against `/api/v1/...` paths.
+// Already the default; pinned here so the handlers do not depend on it.
 AXIOS_INSTANCE.defaults.baseURL = '';
 
 const unhandledRequests: string[] = [];
 
 beforeAll(async () => {
+  // The axios default above can be reassigned; this one cannot — components
+  // build URLs from a constant compiled out of `import.meta.env`, so a leaked
+  // env var can only be caught, not corrected.
+  if (API_BASE_URL !== '') {
+    throw new Error(
+      `API_BASE_URL is ${JSON.stringify(API_BASE_URL)}, not ''. An environment ` +
+        'variable reached the test build; see envPrefix in vitest.config.ts.'
+    );
+  }
+
   await worker.start({
     quiet: true,
     // MSW's own 'error' strategy only fails the request, which a component can
@@ -48,6 +60,10 @@ async function waitForIdle(
 
 afterEach(async () => {
   cleanup();
+
+  // An appearance one test writes down would otherwise be what every test
+  // after it opens a book on, and the failure would look like anything but this.
+  window.localStorage.clear();
 
   // Unmounting stops any query's own refetch scheduling, but a request already
   // dispatched before unmount can still be in flight for a moment after. Give

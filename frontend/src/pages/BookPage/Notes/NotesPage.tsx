@@ -3,18 +3,20 @@ import { useGetNotesForBook } from '@/api/generated/notes/notes.ts';
 import { CardList } from '@/components/CardList.tsx';
 import { EmptyStateText } from '@/components/EmptyStateText.tsx';
 import { Spinner } from '@/components/animations/Spinner.tsx';
-import { SemanticSearchField } from '@/components/search/SemanticSearchField.tsx';
-import { useSemanticSearch } from '@/components/search/useSemanticSearch.ts';
+import { EmbeddingFeature } from '@/components/features/EmbeddingFeature.tsx';
+import { PageHeader } from '@/components/layout/PageHeader.tsx';
+import { ContentSearchField } from '@/components/search/ContentSearchField.tsx';
+import { useContentSearch } from '@/components/search/useContentSearch.ts';
 import { useBookPage } from '@/pages/BookPage/BookPageContext';
+import { FilteredEmptyState } from '@/pages/BookPage/common/FilteredEmptyState.tsx';
 import { useBookTabFilters } from '@/pages/BookPage/common/useBookTabFilters.ts';
 import { AddIcon } from '@/theme/Icons.tsx';
-import { Alert, Box, Divider, IconButton } from '@mui/material';
+import { Alert, Divider, IconButton } from '@mui/material';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
 
-import { MiddleContentColumn } from '@/components/layout/Layouts.tsx';
-import { PageTitle } from '@/components/typography/PageTitle.tsx';
+import { BOOK_PAGE_LABELS } from '@/pages/BookPage/navigation/bookPageRoutes.ts';
 import { FilterFab } from '../common/FilterFab.tsx';
 import { FilterDrawer, type FilterTab } from '../navigation/FilterDrawer.tsx';
 import { TagsList } from '../navigation/TagsList/TagsList.tsx';
@@ -34,7 +36,7 @@ export const NotesPage = () => {
   const navigate = useNavigate({ from: '/book/$bookId/notes' });
   const { kinds, chapterId } = useSearch({ from: '/book/$bookId/notes' });
 
-  const { searchText, handleSearch, selectedTagId, handleTagClick } =
+  const { searchText, handleSearch, selectedTagId, handleTagClick, clearFilters } =
     useBookTabFilters('/book/$bookId/notes');
   const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
 
@@ -51,7 +53,7 @@ export const NotesPage = () => {
   const notes = data?.items ?? [];
   const visibleNotes = notes.filter((note) => selectedKinds.includes(noteKindOf(note.kind)));
 
-  const search = useSemanticSearch({ query: searchText, bookId: book.id });
+  const search = useContentSearch({ query: searchText, bookId: book.id });
   const scoreByNoteId = new Map(search.results?.notes.map((hit) => [hit.id, hit.score]) ?? []);
 
   // The search intersects with the kind and tag filters rather than replacing
@@ -61,6 +63,9 @@ export const NotesPage = () => {
         .filter((note) => scoreByNoteId.has(note.id))
         .sort((a, b) => (scoreByNoteId.get(b.id) ?? 0) - (scoreByNoteId.get(a.id) ?? 0))
     : visibleNotes;
+
+  const filtersActive =
+    search.hasQuery || kindFilterActive || !!selectedTagId || chapterId !== undefined;
 
   const noteDialogs = useNoteDialogs({ allNotes: notesToShow });
 
@@ -99,7 +104,7 @@ export const NotesPage = () => {
   ];
 
   return (
-    <MiddleContentColumn>
+    <>
       {isDesktop &&
         leftSidebarEl &&
         createPortal(
@@ -119,29 +124,24 @@ export const NotesPage = () => {
           leftSidebarEl
         )}
 
-      <Box
-        sx={{
-          display: 'flex',
-          gap: 1,
-          alignItems: 'flex-start',
-          justifyContent: 'space-between',
-        }}
-      >
-        <PageTitle text="Notes" />
-        <IconButton aria-label="Add note" color="primary" onClick={noteDialogs.openCreate}>
-          <AddIcon />
-        </IconButton>
-      </Box>
-
-      <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start', mb: 2 }}>
-        <Box sx={{ flexGrow: 1 }}>
-          <SemanticSearchField
-            value={searchText}
-            onChange={handleSearch}
-            placeholder="Search notes by meaning…"
-          />
-        </Box>
-      </Box>
+      <PageHeader
+        title={BOOK_PAGE_LABELS.notes}
+        search={
+          <EmbeddingFeature>
+            <ContentSearchField
+              value={searchText}
+              onChange={handleSearch}
+              placeholder="Search notes by meaning..."
+            />
+          </EmbeddingFeature>
+        }
+        count={{ value: notesToShow.length, noun: 'note' }}
+        action={
+          <IconButton aria-label="Add note" color="primary" onClick={noteDialogs.openCreate}>
+            <AddIcon />
+          </IconButton>
+        }
+      />
 
       {search.isError && (
         <Alert severity="warning" sx={{ mb: 2 }}>
@@ -151,15 +151,19 @@ export const NotesPage = () => {
 
       {isLoading && <Spinner />}
       {isError && <Alert severity="error">Failed to load notes.</Alert>}
-      {!isLoading && !isError && notesToShow.length === 0 && (
-        <EmptyStateText>
-          {search.hasQuery && visibleNotes.length > 0
-            ? `No notes match “${searchText}”.`
-            : notes.length > 0
-              ? 'No notes match the selected filters.'
-              : 'No notes yet. Create notes about characters, terms, and concepts as you read.'}
-        </EmptyStateText>
-      )}
+      {!isLoading &&
+        !isError &&
+        notesToShow.length === 0 &&
+        (filtersActive ? (
+          <FilteredEmptyState
+            noun="notes"
+            onClearFilters={() => clearFilters(['kinds', 'chapterId'])}
+          />
+        ) : (
+          <EmptyStateText>
+            No notes yet. Create notes about characters, terms, and concepts as you read.
+          </EmptyStateText>
+        ))}
 
       <CardList>
         {notesToShow.map((note) => (
@@ -173,7 +177,7 @@ export const NotesPage = () => {
         fabContainerEl &&
         createPortal(
           <FilterFab
-            filterEnabled={!!selectedTagId || kindFilterActive}
+            activeFilterCount={[!!selectedTagId, kindFilterActive].filter(Boolean).length}
             onClick={() => setFilterDrawerOpen(true)}
           />,
           fabContainerEl
@@ -187,6 +191,6 @@ export const NotesPage = () => {
       )}
 
       <NoteDialogs controller={noteDialogs} />
-    </MiddleContentColumn>
+    </>
   );
 };

@@ -1,6 +1,11 @@
 """Reading context schemas."""
 
 from src.infrastructure.common.schemas.position_schemas import PositionResponse
+from src.infrastructure.reading.schemas.book_statistics_schemas import (
+    BookActivity,
+    BookActivityDay,
+    BookReadingStatistics,
+)
 from src.infrastructure.reading.schemas.bookmark_schemas import (
     Bookmark,
     BookmarkBase,
@@ -23,17 +28,28 @@ from src.infrastructure.reading.schemas.highlight_schemas import (
     HighlightSyncRequest,
     HighlightSyncResponse,
 )
+from src.infrastructure.reading.schemas.library_reading_activity_schemas import (
+    ActivityBook,
+    LibraryActivity,
+    LibraryActivityDay,
+    LibraryReadingActivityResponse,
+    LibraryStats,
+)
 from src.infrastructure.reading.schemas.reading_session_schemas import (
     ReadingSession,
-    ReadingSessionAISummaryResponse,
     ReadingSessionSyncItem,
     ReadingSessionSyncRequest,
     ReadingSessionSyncResponse,
 )
+from src.infrastructure.reading.schemas.recent_capture_schemas import RecentCapture
 
 __all__ = [
+    "ActivityBook",
+    "BookActivity",
+    "BookActivityDay",
     "BookDetails",
     "BookHighlightSearchResponse",
+    "BookReadingStatistics",
     "Bookmark",
     "BookmarkBase",
     "BookmarkCreateRequest",
@@ -50,10 +66,14 @@ __all__ = [
     "HighlightResponseBase",
     "HighlightSyncRequest",
     "HighlightSyncResponse",
+    "LibraryActivity",
+    "LibraryActivityDay",
+    "LibraryReadingActivityResponse",
+    "LibraryStats",
     "PositionResponse",
     "ReadingSession",
-    "ReadingSessionAISummaryResponse",
     "ReadingSessionSyncItem",
     "ReadingSessionSyncRequest",
     "ReadingSessionSyncResponse",
+    "RecentCapture",
 ]

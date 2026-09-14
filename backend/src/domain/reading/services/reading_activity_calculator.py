@@ -1,0 +1,205 @@
+"""Domain service turning reading sessions into a year of daily activity.
+
+The calendar grid the reader sees is coloured by how much was read each day.
+Every rule that decides a square's colour lives here: what "how much" means
+when a session has no page numbers, which 365 days the grid covers, and where
+the four shades divide.
+"""
+
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
+from datetime import date, timedelta, tzinfo
+from enum import StrEnum
+from statistics import median
+
+from src.domain.reading.services.reading_stretch import ReadingStretch, day_in
+
+WINDOW_DAYS = 365
+"""Days the grid covers, the last one included."""
+
+MAX_LEVEL = 4
+"""Shades a day can be coloured, above the uncoloured level 0."""
+
+
+class ActivityUnit(StrEnum):
+    """What a day's number counts.
+
+    A grid is measured in pages when the sessions it draws recorded them, and
+    in minutes otherwise -- see ``ReadingActivityCalculator._unit``.
+    """
+
+    PAGES = "pages"
+    MINUTES = "minutes"
+
+
+class ActivityUnitRule(StrEnum):
+    """How much of the reading must have page numbers for the grid to count pages.
+
+    One book is all-or-nothing: a softer rule would blank the page-less days of
+    a part-paged book. A library cannot afford that rule, where one page-less
+    book would demote every other book's year to minutes.
+    """
+
+    EVERY_SESSION_PAGED = "every_session_paged"
+    ANY_SESSION_PAGED = "any_session_paged"
+
+
+@dataclass(frozen=True)
+class ActivityDay:
+    """One coloured square: a day, what it counts, and how dark it is."""
+
+    day: date
+    value: int
+    level: int
+
+
+@dataclass(frozen=True)
+class ReadingActivity:
+    """The reading, day by day, over the window the grid shows.
+
+    ``days`` carries only the days with something to show, oldest first. The
+    window is ``range_start``..``range_end`` regardless, so the grid spans a
+    full year whether there was reading on three days or three hundred.
+    """
+
+    unit: ActivityUnit
+    range_start: date
+    range_end: date
+    days: tuple[ActivityDay, ...]
+
+
+class ReadingActivityCalculator:
+    """Computes the daily activity grid for whatever reading it is handed.
+
+    The shades divide at multiples of the typical day of *that* reading, so a
+    dense book nobody gets through quickly still shows its good days as good
+    days. Which reading a grid covers is the caller's to decide -- one book's
+    sessions, or a whole library's.
+    """
+
+    def calculate(
+        self,
+        stretches: Sequence[ReadingStretch],
+        today: date,
+        zone: tzinfo,
+        unit_rule: ActivityUnitRule = ActivityUnitRule.EVERY_SESSION_PAGED,
+    ) -> ReadingActivity | None:
+        """Lay the reading out over the window ending at the anchor day.
+
+        ``today`` is the reader's own today, in ``zone`` -- passed in rather
+        than read from the clock, so the window a test asserts on is the window
+        it asked for. ``unit_rule`` is how much of the drawn reading must carry
+        page numbers for the grid to count pages; it defaults to the rule one
+        book is held to.
+
+        Returns ``None`` when there is no square to colour: a book with no
+        sessions, none inside the window, or none there that nets a positive
+        day.
+        """
+        if not stretches:
+            return None
+
+        range_end = self._anchor(stretches, today, zone)
+        range_start = range_end - timedelta(days=WINDOW_DAYS - 1)
+
+        # Narrowed before anything is measured, so that both the unit and the
+        # shades are decided by the days the reader will actually see.
+        drawn = [
+            stretch
+            for stretch in stretches
+            if range_start <= day_in(stretch.start_time, zone) <= range_end
+        ]
+        if not drawn:
+            return None
+
+        unit = self._unit(drawn, unit_rule)
+        active = {
+            day: value for day, value in self._daily_totals(drawn, unit, zone).items() if value > 0
+        }
+        if not active:
+            return None
+
+        typical = median(active.values())
+        days = tuple(
+            ActivityDay(day=day, value=active[day], level=self._level(active[day], typical))
+            for day in sorted(active)
+        )
+        return ReadingActivity(
+            unit=unit,
+            range_start=range_start,
+            range_end=range_end,
+            days=days,
+        )
+
+    def _unit(self, drawn: Sequence[ReadingStretch], rule: ActivityUnitRule) -> ActivityUnit:
+        """Pages when the drawn sessions recorded them, per ``rule``; minutes otherwise.
+
+        Only the drawn sessions get a say: a page-less session from two years
+        ago would otherwise label a grid by something nobody can see on it.
+        """
+        paged = (
+            all(stretch.has_pages for stretch in drawn)
+            if rule is ActivityUnitRule.EVERY_SESSION_PAGED
+            else any(stretch.has_pages for stretch in drawn)
+        )
+        return ActivityUnit.PAGES if paged else ActivityUnit.MINUTES
+
+    def _anchor(self, stretches: Sequence[ReadingStretch], today: date, zone: tzinfo) -> date:
+        """The last day of the window.
+
+        Today, unless the book was last read longer ago than the window is
+        wide -- so an active book's grid ends on the reader's own today and an
+        unread fortnight shows as the gap it is, while a book left two years
+        ago still ends on its final reading day rather than showing a year of
+        nothing.
+
+        A session dated in the future never moves the window. A device with a
+        reset clock can date one years ahead, and anchoring on it would carry
+        the window off with it and leave every real reading day outside; such
+        a session is simply not drawn.
+        """
+        last_day = max(day_in(stretch.start_time, zone) for stretch in stretches)
+        return last_day if last_day < today - timedelta(days=WINDOW_DAYS - 1) else today
+
+    def _daily_totals(
+        self, stretches: Sequence[ReadingStretch], unit: ActivityUnit, zone: tzinfo
+    ) -> dict[date, int]:
+        """Add each session up onto the day it began.
+
+        A session that runs past midnight counts wholly towards the day the
+        reader sat down, which is the day they would say they read on.
+        """
+        if unit is ActivityUnit.PAGES:
+            return self._totals_by_day(stretches, zone, lambda s: s.pages_read)
+
+        seconds = self._totals_by_day(stretches, zone, lambda s: s.duration_seconds)
+        return {day: round(total / 60) for day, total in seconds.items()}
+
+    def _totals_by_day(
+        self,
+        stretches: Sequence[ReadingStretch],
+        zone: tzinfo,
+        amount: Callable[[ReadingStretch], int],
+    ) -> dict[date, int]:
+        """Sum ``amount`` per calendar day."""
+        totals: dict[date, int] = {}
+        for stretch in stretches:
+            day = day_in(stretch.start_time, zone)
+            totals[day] = totals.get(day, 0) + amount(stretch)
+        return totals
+
+    def _level(self, value: int, typical: float) -> int:
+        """Which of the four shades a day earns, against this book's typical day.
+
+        The yardstick is the median rather than the mean so that one all-day
+        binge cannot flatten a year of ordinary reading into a single shade,
+        and so that a book read on one day alone comes out mid-scale rather
+        than at either extreme.
+        """
+        if value <= 0.5 * typical:
+            return 1
+        if value <= typical:
+            return 2
+        if value <= 1.5 * typical:
+            return 3
+        return MAX_LEVEL

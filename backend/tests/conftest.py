@@ -17,6 +17,8 @@ os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
 import inspect
 import itertools
 from collections.abc import AsyncGenerator, Awaitable, Callable, Iterator
+from contextlib import contextmanager
+from datetime import UTC, date, timedelta
 from datetime import datetime as dt
 from pathlib import Path
 from types import SimpleNamespace
@@ -44,15 +46,26 @@ from src.infrastructure.common.client_version import (
     KOREADER_PLUGIN,
     format_version,
 )
-from src.infrastructure.identity.dependencies import get_current_user
+from src.infrastructure.identity.dependencies import (
+    AuthenticatedCaller,
+    get_authenticated_caller,
+    get_current_user,
+)
+from src.infrastructure.identity.services.token_service import ACCESS_TOKEN_EXPIRE_MINUTES
 from src.infrastructure.library.repositories import file_repository
 from src.infrastructure.library.schemas import EreaderBookMetadata
+from src.infrastructure.reading.routers.reader_clock import reader_today
+from src.infrastructure.reading.schemas.ereader_highlight_schemas import (
+    KOREADER_DATETIME_FORMAT,
+)
+from src.infrastructure.web_reader.dependencies import get_publication_reader
 from src.main import app
 from src.models import (
     Book,
     Chapter,
     Flashcard,
     Highlight,
+    ReadingSession,
     Tag,
     TagGroup,
     User,
@@ -150,6 +163,17 @@ async def create_test_chapter(
     return chapter
 
 
+def device_datetime(value: str) -> dt:
+    """Parse a KOReader timestamp, the way the sync boundary does.
+
+    Tests read better writing the device's own format, but the column and every
+    layer above it now hold a real datetime.
+
+    Naive on purpose: the device sends no offset, so there is none to parse.
+    """
+    return dt.strptime(value, KOREADER_DATETIME_FORMAT)  # noqa: DTZ007
+
+
 async def create_test_highlight(
     db_session: AsyncSession,
     book: Book,
@@ -180,7 +204,7 @@ async def create_test_highlight(
         page=page,
         start_xpoint=start_xpoint,
         end_xpoint=end_xpoint,
-        datetime=datetime_str,
+        datetime=device_datetime(datetime_str),
         content_hash=content_hash,
         deleted_at=deleted_at,
         removed_from_devices_at=removed_from_devices_at,
@@ -190,6 +214,48 @@ async def create_test_highlight(
     await db_session.commit()
     await db_session.refresh(highlight)
     return highlight
+
+
+async def create_test_reading_session(
+    db_session: AsyncSession,
+    book: Book,
+    user_id: int,
+    start_time: dt,
+    minutes: int = 20,
+    end_position: list[int] | None = None,
+    start_page: int | None = None,
+    end_page: int | None = None,
+) -> ReadingSession:
+    """Record a reading session that ran ``minutes`` from ``start_time``.
+
+    The content hash only has to be unique per user, so it is derived from what
+    already distinguishes one test session from another. Pages default to none,
+    as they are for a book KOReader syncs by xpoint alone.
+    """
+    session = ReadingSession(
+        user_id=user_id,
+        book_id=book.id,
+        start_time=start_time,
+        end_time=start_time + timedelta(minutes=minutes),
+        end_position=end_position,
+        start_page=start_page,
+        end_page=end_page,
+        content_hash=f"hash-{start_time.isoformat()}-{book.id}-{user_id}",
+    )
+    db_session.add(session)
+    await db_session.commit()
+    await db_session.refresh(session)
+    return session
+
+
+@contextmanager
+def readers_today(day: date) -> Iterator[None]:
+    """Pin the day an activity window ends on, so a test asserts on a fixed grid."""
+    app.dependency_overrides[reader_today] = lambda: day
+    try:
+        yield
+    finally:
+        del app.dependency_overrides[reader_today]
 
 
 async def create_test_highlight_style(
@@ -312,13 +378,39 @@ def contract_checked_queue() -> AsyncMock:
     return fake
 
 
-@pytest.fixture
-async def client(db_session: AsyncSession, test_user: User) -> AsyncGenerator[AsyncClient, None]:
-    """Create a test client with database session and mocked authentication."""
+@contextmanager
+def app_test_wiring(db_session: AsyncSession) -> Iterator[None]:
+    """Point the app at the test session, the local file store and a fake queue."""
 
     async def override_get_db() -> AsyncGenerator[AsyncSession, None]:
         yield db_session
 
+    # Always use local FileRepository in tests regardless of S3 env vars
+    from src.core import container  # noqa: PLC0415
+    from src.infrastructure.library.repositories.file_repository import (  # noqa: PLC0415
+        FileRepository,
+    )
+
+    app.dependency_overrides[get_db] = override_get_db
+    container.shared.file_repository.override(FileRepository())
+
+    # The SAQ queue is wired in the app lifespan, which ASGITransport skips.
+    # Without a stand-in, every write path that enqueues an embedding fails at
+    # DI resolution -- before the enqueuer's own error handling can swallow
+    # anything -- so a note create would 500 in tests and nowhere else.
+    container.job_queue_service.override(contract_checked_queue())
+
+    try:
+        yield
+    finally:
+        container.job_queue_service.reset_override()
+        container.shared.file_repository.reset_override()
+        app.dependency_overrides.clear()
+
+
+@pytest.fixture
+async def client(db_session: AsyncSession, test_user: User) -> AsyncGenerator[AsyncClient, None]:
+    """Create a test client with database session and mocked authentication."""
     # Read off the ORM user once, here, rather than per request. Every test
     # shares one session, so a request that rolls back -- a rejected insert, say
     # -- expires this instance, and the next request's attribute access would
@@ -334,30 +426,22 @@ async def client(db_session: AsyncSession, test_user: User) -> AsyncGenerator[As
     async def override_get_current_user() -> DomainUser:
         return current_user
 
-    app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[get_current_user] = override_get_current_user
+    async def override_get_authenticated_caller() -> AuthenticatedCaller:
+        return AuthenticatedCaller(
+            user=current_user,
+            access_token_expires_at=dt.now(UTC) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
+        )
 
-    # Always use local FileRepository in tests regardless of S3 env vars
-    from src.core import container  # noqa: PLC0415
-    from src.infrastructure.library.repositories.file_repository import (  # noqa: PLC0415
-        FileRepository,
-    )
+    with app_test_wiring(db_session):
+        app.dependency_overrides[get_current_user] = override_get_current_user
+        app.dependency_overrides[get_authenticated_caller] = override_get_authenticated_caller
+        # The publication routes authenticate on a cookie; the tests that drive
+        # the cookie itself use `browser_client`, which overrides nothing.
+        app.dependency_overrides[get_publication_reader] = override_get_current_user
 
-    container.shared.file_repository.override(FileRepository())
-
-    # The SAQ queue is wired in the app lifespan, which ASGITransport skips.
-    # Without a stand-in, every write path that enqueues an embedding fails at
-    # DI resolution -- before the enqueuer's own error handling can swallow
-    # anything -- so a note create would 500 in tests and nowhere else.
-    container.job_queue_service.override(contract_checked_queue())
-
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as test_client:
-        yield test_client
-
-    container.job_queue_service.reset_override()
-    container.shared.file_repository.reset_override()
-    app.dependency_overrides.clear()
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as test_client:
+            yield test_client
 
 
 @pytest.fixture
@@ -370,6 +454,26 @@ async def plugin_client(client: AsyncClient) -> AsyncGenerator[AsyncClient, None
         headers={CLIENT_VERSION_HEADER: SUPPORTED_CLIENT_HEADER_VALUE},
     ) as announced_client:
         yield announced_client
+
+
+@pytest.fixture
+async def browser_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
+    """A client carrying only the credential a test gives it, over ``https``.
+
+    Deliberately not built on ``client``: what makes it unauthenticated is the
+    absence of that fixture's overrides, and ``https`` is what keeps httpx's jar
+    from dropping a ``Secure`` cookie the server sets.
+    """
+    # One app, one override map: a test holding `client` too would authenticate
+    # every request through this one and prove nothing about the credential.
+    assert get_current_user not in app.dependency_overrides, (
+        "browser_client cannot be used alongside a fixture that overrides authentication"
+    )
+
+    with app_test_wiring(db_session):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="https://test") as browser:
+            yield browser
 
 
 @pytest.fixture

@@ -12,6 +12,7 @@ from src.containers.reflection import ReflectionContainer
 from src.containers.semantic import SemanticContainer
 from src.containers.shared import SharedContainer
 from src.containers.tagging import TaggingContainer
+from src.containers.web_reader import WebReaderContainer
 from src.database import current_db_session
 
 
@@ -62,8 +63,12 @@ class RootContainer(containers.DeclarativeContainer):
         highlight_deduplication_service=shared.highlight_deduplication_service,
         label_resolution_service=shared.label_resolution_service,
         epub_position_index_service=shared.epub_position_index_service,
+        position_anchor_service=shared.position_anchor_service,
         ebook_text_extraction_service=shared.ebook_text_extraction_service,
         ai_service=shared.ai_service,
+        book_statistics_query=shared.book_statistics_query,
+        library_reading_activity_query=shared.library_reading_activity_query,
+        recent_captures_query=shared.recent_captures_query,
         bookmark_query=shared.bookmark_query,
         highlight_label_query=shared.highlight_label_query,
         highlight_search_query=shared.highlight_search_query,
@@ -80,6 +85,24 @@ class RootContainer(containers.DeclarativeContainer):
         book_repository=shared.book_repository,
     )
 
+    # Declared before library, which uploads the EPUB that drives the locator backfill.
+    web_reader = providers.Container(
+        WebReaderContainer,
+        publication_repository=shared.publication_repository,
+        book_repository=shared.book_repository,
+        file_repository=shared.file_repository,
+        publication_parser=shared.epub_parser_service,
+        publication_resource_query=shared.publication_resource_query,
+        highlight_locator_query=shared.highlight_locator_query,
+        resume_position_query=shared.resume_position_query,
+        publication_token_service=shared.publication_token_service,
+        highlight_repository=shared.highlight_repository,
+        reading_session_repository=shared.reading_session_repository,
+        position_anchor_service=shared.position_anchor_service,
+        web_reading_position_repository=shared.web_reading_position_repository,
+        position_index_service=shared.epub_position_index_service,
+    )
+
     library = providers.Container(
         LibraryContainer,
         book_repository=shared.book_repository,
@@ -90,8 +113,10 @@ class RootContainer(containers.DeclarativeContainer):
         epub_parser_service=shared.epub_parser_service,
         epub_position_index_service=shared.epub_position_index_service,
         cover_image_service=shared.cover_image_service,
+        publication_repository=shared.publication_repository,
         book_details_query=shared.book_details_query,
         book_list_query=shared.book_list_query,
+        backfill_book_locators_use_case=web_reader.backfill_book_locators_use_case,
     )
 
     learning = providers.Container(
@@ -146,4 +171,5 @@ class RootContainer(containers.DeclarativeContainer):
         book_repository=shared.book_repository,
         semantic_search_query=shared.semantic_search_query,
         search_hydration_query=shared.search_hydration_query,
+        book_list_query=shared.book_list_query,
     )

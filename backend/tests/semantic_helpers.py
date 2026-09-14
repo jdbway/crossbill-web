@@ -1,6 +1,6 @@
-"""Shared setup for the semantic-search API tests.
+"""Shared setup for the API tests over the embeddings index.
 
-The search/related suite and the backfill suite both plant highlights, index
+The global-search/related suite and the backfill suite both plant highlights, index
 them, and drive endpoints gated by the embeddings feature flag. Keeping that
 here stops the two files repeating each other -- and stops them drifting on what
 "an indexed highlight" means.
@@ -8,7 +8,7 @@ here stops the two files repeating each other -- and stops them drifting on what
 
 import hashlib
 from collections.abc import Iterator
-from contextlib import AbstractContextManager, contextmanager
+from contextlib import AbstractContextManager, ExitStack, contextmanager
 from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock, patch
@@ -24,8 +24,13 @@ from src.infrastructure.notes.orm.associations import note_books
 from src.models import Book, Chapter, ChapterDigest, Embedding, Highlight, Note
 from tests.conftest import create_test_highlight
 
-#: Patch target for the feature flag the semantic routers gate on.
-ENABLED = "src.infrastructure.common.dependencies.is_embeddings_enabled"
+#: Patch targets for the feature flag, one per module that imported the name:
+#: the semantic routers' gate decorator, and the search use case that skips its
+#: ranked half without a provider.
+ENABLED_TARGETS = (
+    "src.infrastructure.common.dependencies.is_embeddings_enabled",
+    "src.application.semantic.queries.global_search_use_case.is_embeddings_enabled",
+)
 
 #: The model an "indexed" fixture is indexed under, and the one the gate below
 #: configures. One constant rather than whatever the ambient config happens to
@@ -66,7 +71,9 @@ def _embedding_provider(provider: str | None) -> Iterator[None]:
     )
     container.shared.reset_singletons()
     try:
-        with patch(ENABLED, return_value=provider is not None):
+        with ExitStack() as flags:
+            for target in ENABLED_TARGETS:
+                flags.enter_context(patch(target, return_value=provider is not None))
             yield
     finally:
         container.settings.reset_last_overriding()
@@ -271,9 +278,9 @@ async def upload_highlights(
 
 
 async def get_search(client: AsyncClient, **params: PrimitiveData) -> Response:
-    """GET /semantic/search with the feature flag forced on. Status not asserted."""
+    """GET /search with the feature flag forced on. Status not asserted."""
     with embeddings_enabled():
-        return await client.get("/api/v1/semantic/search", params={"q": "idea", **params})
+        return await client.get("/api/v1/search", params={"q": "idea", **params})
 
 
 async def search_groups(client: AsyncClient, **params: PrimitiveData) -> dict[str, Any]:
@@ -281,6 +288,11 @@ async def search_groups(client: AsyncClient, **params: PrimitiveData) -> dict[st
     response = await get_search(client, **params)
     assert response.status_code == status.HTTP_200_OK, response.text
     return response.json()
+
+
+async def search_books(client: AsyncClient, **params: PrimitiveData) -> list[dict[str, Any]]:
+    """Search and return the books matched by title or author, in title order."""
+    return (await search_groups(client, **params))["books"]
 
 
 async def search_highlight_ids(client: AsyncClient, **params: PrimitiveData) -> list[int]:

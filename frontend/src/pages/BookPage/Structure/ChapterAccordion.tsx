@@ -1,5 +1,7 @@
 import type { ChapterWithHighlights, PositionResponse } from '@/api/generated/model';
-import { ExpandMoreIcon, FlashcardsIcon, HighlightsIcon } from '@/theme/Icons.tsx';
+import { CollapseChevron } from '@/components/CollapseChevron.tsx';
+import { CountWithIcon } from '@/components/CountWithIcon.tsx';
+import { FlashcardsIcon, HighlightsIcon, NotesIcon } from '@/theme/Icons.tsx';
 import { Box, ButtonBase, Collapse, IconButton, Typography, type Theme } from '@mui/material';
 import { sumBy } from 'lodash';
 import { useId, useState } from 'react';
@@ -11,6 +13,8 @@ interface ChapterAccordionProps {
   chapter: ChapterWithHighlights;
   childrenByParentId: Map<number | null, ChapterWithHighlights[]>;
   gistByChapterId: Map<number, string>;
+  /** Notes linked to each chapter, matching what the chapter dialog's Notes tab counts. */
+  noteCountByChapterId: Map<number, number>;
   bookId: number;
   depth?: number;
   readingPosition?: PositionResponse | null;
@@ -51,7 +55,19 @@ const ChapterLabel = ({
   readStatus?: ReadStatus;
 }) => (
   <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, minWidth: 0 }}>
-    {readStatus && <ChapterReadIndicator status={readStatus} chapterName={chapter.name} />}
+    {readStatus && (
+      <Box
+        sx={{
+          typography: 'body1',
+          height: '1lh',
+          display: 'flex',
+          alignItems: 'center',
+          flexShrink: 0,
+        }}
+      >
+        <ChapterReadIndicator status={readStatus} chapterName={chapter.name} />
+      </Box>
+    )}
     <Box sx={{ minWidth: 0, textAlign: 'left' }}>
       <Typography variant="body1" sx={{ fontWeight: 600 }}>
         {chapter.name}
@@ -61,27 +77,31 @@ const ChapterLabel = ({
   </Box>
 );
 
-const ChapterCounts = ({ chapter }: { chapter: ChapterWithHighlights }) => {
-  const highlightCount = chapter.highlights.length;
-  const flashcardCount = sumBy(chapter.highlights, (h) => h.flashcards.length);
-
-  return (
-    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, color: 'text.secondary' }}>
-      {highlightCount > 0 && (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-          <HighlightsIcon sx={{ fontSize: 16 }} />
-          <Typography variant="caption">{highlightCount}</Typography>
-        </Box>
-      )}
-      {flashcardCount > 0 && (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-          <FlashcardsIcon sx={{ fontSize: 16 }} />
-          <Typography variant="caption">{flashcardCount}</Typography>
-        </Box>
-      )}
-    </Box>
-  );
-};
+const ChapterCounts = ({
+  chapter,
+  noteCount,
+}: {
+  chapter: ChapterWithHighlights;
+  noteCount: number;
+}) => (
+  <Box
+    sx={{
+      display: 'flex',
+      alignItems: 'center',
+      gap: 1.5,
+      color: 'text.secondary',
+      typography: 'caption',
+    }}
+  >
+    <CountWithIcon icon={HighlightsIcon} count={chapter.highlights.length} noun="highlight" />
+    <CountWithIcon icon={NotesIcon} count={noteCount} noun="note" />
+    <CountWithIcon
+      icon={FlashcardsIcon}
+      count={sumBy(chapter.highlights, (h) => h.flashcards.length)}
+      noun="flashcard"
+    />
+  </Box>
+);
 
 const rowSx = (depth: number) => (theme: Theme) => ({
   ml: theme.spacing(depth * 2),
@@ -118,17 +138,25 @@ const hoverSx = {
 interface ChapterRowProps {
   chapter: ChapterWithHighlights;
   gist?: string;
+  noteCount: number;
   depth: number;
   readStatus?: ReadStatus;
   onOpen: () => void;
 }
 
 /** A chapter with no children: the whole row opens it, nothing competes. */
-const LeafChapterRow = ({ chapter, gist, depth, readStatus, onOpen }: ChapterRowProps) => (
+const LeafChapterRow = ({
+  chapter,
+  gist,
+  noteCount,
+  depth,
+  readStatus,
+  onOpen,
+}: ChapterRowProps) => (
   <Box sx={rowSx(depth)}>
     <ButtonBase onClick={onOpen} sx={[rowBodySx, hoverSx]}>
       <ChapterLabel chapter={chapter} gist={gist} readStatus={readStatus} />
-      <ChapterCounts chapter={chapter} />
+      <ChapterCounts chapter={chapter} noteCount={noteCount} />
     </ButtonBase>
   </Box>
 );
@@ -149,6 +177,7 @@ interface ParentChapterRowProps extends ChapterRowProps {
 const ParentChapterRow = ({
   chapter,
   gist,
+  noteCount,
   depth,
   readStatus,
   onOpen,
@@ -167,7 +196,7 @@ const ParentChapterRow = ({
       >
         <ChapterLabel chapter={chapter} gist={gist} readStatus={readStatus} />
       </ButtonBase>
-      <ChapterCounts chapter={chapter} />
+      <ChapterCounts chapter={chapter} noteCount={noteCount} />
     </Box>
     <IconButton
       onClick={(event) => {
@@ -177,13 +206,9 @@ const ParentChapterRow = ({
       aria-label={`${expanded ? 'Collapse' : 'Expand'} ${chapter.name}`}
       aria-expanded={expanded}
       aria-controls={childrenId}
-      sx={{
-        mr: 1,
-        transition: 'transform 0.2s ease',
-        transform: expanded ? 'rotate(180deg)' : 'none',
-      }}
+      sx={{ mr: 1 }}
     >
-      <ExpandMoreIcon />
+      <CollapseChevron isExpanded={expanded} />
     </IconButton>
   </Box>
 );
@@ -192,6 +217,7 @@ export const ChapterAccordion = ({
   chapter,
   childrenByParentId,
   gistByChapterId,
+  noteCountByChapterId,
   bookId,
   depth = 0,
   readingPosition,
@@ -212,6 +238,7 @@ export const ChapterAccordion = ({
   const childChapters = childrenByParentId.get(chapter.id) ?? [];
   const isLeaf = childChapters.length === 0;
   const gist = gistByChapterId.get(chapter.id);
+  const noteCount = noteCountByChapterId.get(chapter.id) ?? 0;
 
   return (
     <Box data-chapter-read={isRead ? 'true' : 'false'}>
@@ -219,6 +246,7 @@ export const ChapterAccordion = ({
         <LeafChapterRow
           chapter={chapter}
           gist={gist}
+          noteCount={noteCount}
           depth={depth}
           readStatus={readStatus}
           onOpen={() => onChapterClick?.(chapter.id)}
@@ -227,6 +255,7 @@ export const ChapterAccordion = ({
         <ParentChapterRow
           chapter={chapter}
           gist={gist}
+          noteCount={noteCount}
           depth={depth}
           readStatus={readStatus}
           onOpen={() => onChapterClick?.(chapter.id)}
@@ -244,6 +273,7 @@ export const ChapterAccordion = ({
               chapter={child}
               childrenByParentId={childrenByParentId}
               gistByChapterId={gistByChapterId}
+              noteCountByChapterId={noteCountByChapterId}
               bookId={bookId}
               depth={depth + 1}
               readingPosition={readingPosition}

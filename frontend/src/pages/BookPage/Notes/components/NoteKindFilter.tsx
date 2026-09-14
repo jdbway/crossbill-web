@@ -18,7 +18,7 @@ export const NoteKindFilter = ({ selected, onChange, hideTitle = false }: NoteKi
 
   return (
     <Box>
-      {!hideTitle && <SidebarSectionHeader icon={FilterListIcon} title="Note types" />}
+      {!hideTitle && <SidebarSectionHeader icon={FilterListIcon} title="Types" />}
       <Box
         sx={{
           display: 'flex',
@@ -37,7 +37,6 @@ export const NoteKindFilter = ({ selected, onChange, hideTitle = false }: NoteKi
             <Chip
               key={kind}
               label={NOTE_KIND_LABELS[kind]}
-              size="small"
               color={active ? 'primary' : 'default'}
               variant={active ? 'filled' : 'outlined'}
               onClick={() => toggle(kind)}

@@ -101,67 +101,14 @@
         }
       }
     },
-    "/api/v1/books/recently-viewed": {
+    "/api/v1/books/recent": {
       "get": {
         "tags": [
           "books"
         ],
-        "summary": "Get Recently Viewed Books",
-        "description": "Get recently viewed books with their highlight counts.\n\nReturns books that have been viewed at least once, ordered by most recently viewed.\n\nArgs:\n    limit: Maximum number of books to return (default: 10, max: 50)\n\nReturns:\n    CollectionResponse with list of recently viewed books\n\nRaises:\n    HTTPException: If fetching books fails due to server error",
-        "operationId": "get_recently_viewed_books",
-        "security": [
-          {
-            "OAuth2PasswordBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "maximum": 50,
-              "minimum": 1,
-              "description": "Maximum number of books to return",
-              "default": 10,
-              "title": "Limit"
-            },
-            "description": "Maximum number of books to return"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CollectionResponse_BookWithHighlightCount_"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/books/recently-synced": {
-      "get": {
-        "tags": [
-          "books"
-        ],
-        "summary": "Get Recently Synced Books",
-        "description": "Get the books a device has most recently synced, with their counts.\n\nReturns books an e-reader has successfully sent highlights or reading\nsessions for, most recently synced first. A book nothing has ever synced is\nleft out.\n\nArgs:\n    limit: Maximum number of books to return (default: 10, max: 50)\n\nReturns:\n    CollectionResponse with list of recently synced books",
-        "operationId": "get_recently_synced_books",
+        "summary": "Get Recent Books",
+        "description": "Get the user's most recently touched books, with their counts.\n\nReturns books the user has opened or an e-reader has sent highlights or\nreading sessions for, ordered by the later of those two timestamps. A book\nthat has been neither opened nor synced is left out.\n\nArgs:\n    limit: Maximum number of books to return (default: 10, max: 50)\n\nReturns:\n    CollectionResponse with list of recent books\n\nRaises:\n    HTTPException: If fetching books fails due to server error",
+        "operationId": "get_recent_books",
         "security": [
           {
             "OAuth2PasswordBearer": []
@@ -241,6 +188,55 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "books"
+        ],
+        "summary": "Update Book",
+        "description": "Apply the reader's edits to a book.\n\nPartial by contract: only fields present in the request body are applied,\nwhich is why this reads `model_fields_set` rather than the parsed values.",
+        "operationId": "update_book",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "book_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Book Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BookUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
           },
           "422": {
             "description": "Validation Error",
@@ -798,7 +794,7 @@
           "highlights"
         ],
         "summary": "Sync Highlights",
-        "description": "Sync highlights from KOReader.\n\nCreates or updates book record and adds highlights with automatic deduplication.\nDuplicates are identified by the combination of book, text, and datetime.\n\n``removed_ids`` carries the highlights the reader deleted on the device:\nthey are withheld from every device's pull and stay whole on the web.\n\nA highlight flagged ``is_new`` was created on the device after its last\npull, so a duplicate of a removed or deleted highlight is a deliberate\nre-highlight and brings that highlight back.\n\nArgs:\n    request: Highlight sync request containing book metadata and highlights\n\nReturns:\n    HighlightSyncResponse with sync statistics\n\nRaises:\n    HTTPException: If the sync fails due to server error",
+        "description": "Sync highlights from KOReader.\n\nCreates or updates book record and adds highlights with automatic deduplication.\nDuplicates are identified by book and highlighted text alone: a highlight's\ntimestamps say when the device made and edited it, and take no part in\ndeciding whether it is the same highlight.\n\n``removed_ids`` carries the highlights the reader deleted on the device:\nthey are withheld from every device's pull and stay whole on the web.\n\nA highlight flagged ``is_new`` was created on the device after its last\npull, so a duplicate of a removed or deleted highlight is a deliberate\nre-highlight and brings that highlight back.\n\nArgs:\n    request: Highlight sync request containing book metadata and highlights\n\nReturns:\n    HighlightSyncResponse with sync statistics\n\nRaises:\n    HTTPException: If the sync fails due to server error",
         "operationId": "upload_highlights",
         "deprecated": true,
         "security": [
@@ -880,7 +876,7 @@
           "highlights"
         ],
         "summary": "Sync Highlights",
-        "description": "Sync highlights from KOReader.\n\nCreates or updates book record and adds highlights with automatic deduplication.\nDuplicates are identified by the combination of book, text, and datetime.\n\n``removed_ids`` carries the highlights the reader deleted on the device:\nthey are withheld from every device's pull and stay whole on the web.\n\nA highlight flagged ``is_new`` was created on the device after its last\npull, so a duplicate of a removed or deleted highlight is a deliberate\nre-highlight and brings that highlight back.\n\nArgs:\n    request: Highlight sync request containing book metadata and highlights\n\nReturns:\n    HighlightSyncResponse with sync statistics\n\nRaises:\n    HTTPException: If the sync fails due to server error",
+        "description": "Sync highlights from KOReader.\n\nCreates or updates book record and adds highlights with automatic deduplication.\nDuplicates are identified by book and highlighted text alone: a highlight's\ntimestamps say when the device made and edited it, and take no part in\ndeciding whether it is the same highlight.\n\n``removed_ids`` carries the highlights the reader deleted on the device:\nthey are withheld from every device's pull and stay whole on the web.\n\nA highlight flagged ``is_new`` was created on the device after its last\npull, so a duplicate of a removed or deleted highlight is a deliberate\nre-highlight and brings that highlight back.\n\nArgs:\n    request: Highlight sync request containing book metadata and highlights\n\nReturns:\n    HighlightSyncResponse with sync statistics\n\nRaises:\n    HTTPException: If the sync fails due to server error",
         "operationId": "sync_highlights",
         "security": [
           {
@@ -1753,14 +1749,14 @@
         }
       }
     },
-    "/api/v1/{reading_session_id}/ai_summary": {
+    "/api/v1/books/{book_id}/statistics": {
       "get": {
         "tags": [
-          "reading_sessions"
+          "statistics"
         ],
-        "summary": "Get Reading Session Ai Summary",
-        "description": "Get AI-generated summary for a reading session.\n\nReturns cached summary if available, otherwise generates new summary\nfrom the read content and caches it.\n\nArgs:\n    reading_session_id: ID of the reading session\n    current_user: Authenticated user\n\nReturns:\n    ReadingSessionAISummaryResponse with the AI summary\n\nRaises:\n    HTTPException 404: If reading session not found or not owned by user\n    HTTPException 400: If session has no position data\n    HTTPException 500: For unexpected errors",
-        "operationId": "get_reading_session_ai_summary",
+        "summary": "Get Book Statistics",
+        "description": "Get aggregated reading statistics for a specific book.\n\nTotals every reading session recorded for the book and reports how far\nthrough it the reader has got.\n\nArgs:\n    book_id: ID of the book\n    tz: IANA timezone deciding which calendar day a session falls on\n\nReturns:\n    BookReadingStatistics for the book",
+        "operationId": "get_book_statistics",
         "security": [
           {
             "OAuth2PasswordBearer": []
@@ -1768,13 +1764,25 @@
         ],
         "parameters": [
           {
-            "name": "reading_session_id",
+            "name": "book_id",
             "in": "path",
             "required": true,
             "schema": {
               "type": "integer",
-              "title": "Reading Session Id"
+              "title": "Book Id"
             }
+          },
+          {
+            "name": "tz",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "IANA timezone the reader's calendar days are counted in",
+              "default": "UTC",
+              "title": "Tz"
+            },
+            "description": "IANA timezone the reader's calendar days are counted in"
           }
         ],
         "responses": {
@@ -1783,7 +1791,123 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ReadingSessionAISummaryResponse"
+                  "$ref": "#/components/schemas/BookReadingStatistics"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/statistics/reading-activity": {
+      "get": {
+        "tags": [
+          "statistics"
+        ],
+        "summary": "Get Library Reading Activity",
+        "description": "Get the reader's daily reading activity across every book.\n\nColours one square per day by how much of the library was read that day,\nnames the books each day was spent on, and sums the year up beside it.\n\nArgs:\n    tz: IANA timezone deciding which calendar day a session falls on\n\nReturns:\n    LibraryReadingActivityResponse for the whole library",
+        "operationId": "get_library_reading_activity",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "tz",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "IANA timezone the reader's calendar days are counted in",
+              "default": "UTC",
+              "title": "Tz"
+            },
+            "description": "IANA timezone the reader's calendar days are counted in"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryReadingActivityResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/captures/recent": {
+      "get": {
+        "tags": [
+          "captures"
+        ],
+        "summary": "Get Recent Captures",
+        "description": "Get the reader's most recent highlights and notes, newest first.\n\nA highlight is filed under the moment the e-reader recorded it; a note\nunder its latest edit. One book contributes at most three captures to any\none day, and the last of those says how many more that day holds.\n\nArgs:\n    tz: IANA timezone deciding which calendar day a note falls on\n    limit: Maximum number of captures to return (default: 8, max: 50)\n\nReturns:\n    CollectionResponse with the captures, newest first",
+        "operationId": "get_recent_captures",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 50,
+              "minimum": 1,
+              "description": "Maximum number of captures to return",
+              "default": 8,
+              "title": "Limit"
+            },
+            "description": "Maximum number of captures to return"
+          },
+          {
+            "name": "tz",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "IANA timezone the reader's calendar days are counted in",
+              "default": "UTC",
+              "title": "Tz"
+            },
+            "description": "IANA timezone the reader's calendar days are counted in"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionResponse_RecentCapture_"
                 }
               }
             }
@@ -3356,7 +3480,7 @@
           "jobs"
         ],
         "summary": "Enqueue Book Digest",
-        "description": "Enqueue digest generation for all chapters of a book.",
+        "description": "Enqueue digest generation for a book, optionally replacing existing digests.",
         "operationId": "enqueue_book_digest",
         "security": [
           {
@@ -3371,6 +3495,16 @@
             "schema": {
               "type": "integer",
               "title": "Book Id"
+            }
+          },
+          {
+            "name": "overwrite_existing",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Overwrite Existing"
             }
           }
         ],
@@ -3960,6 +4094,440 @@
         }
       }
     },
+    "/api/v1/readium/books/{book_id}/session": {
+      "post": {
+        "tags": [
+          "readium"
+        ],
+        "summary": "Start Publication Session",
+        "description": "Hand the browser a cookie that lets it load this book's resources.\n\nBearer-only by design: a publication cookie can never extend itself. The 200\nbody says when to re-mint, which the httpOnly cookie cannot.",
+        "operationId": "start_publication_session",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "book_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Book Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicationSession"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/readium/books/{book_id}/manifest.json": {
+      "get": {
+        "tags": [
+          "readium"
+        ],
+        "summary": "Get Readium Manifest",
+        "description": "Get the Readium Web Publication Manifest for a book's EPUB.",
+        "operationId": "get_readium_manifest",
+        "parameters": [
+          {
+            "name": "book_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Book Id"
+            }
+          },
+          {
+            "name": "publication_access",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Publication Access"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/webpub+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebPublicationManifest"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/readium/books/{book_id}/positions.json": {
+      "get": {
+        "tags": [
+          "readium"
+        ],
+        "summary": "Get Readium Positions",
+        "description": "Get the Readium position list for a book's EPUB.\n\nThis is what the manifest's ``position-list`` link resolves to: one Locator\nper synthetic page of the publication, which is how a reader turns \"where am\nI\" into a number it can show and store.",
+        "operationId": "get_readium_positions",
+        "parameters": [
+          {
+            "name": "book_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Book Id"
+            }
+          },
+          {
+            "name": "publication_access",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Publication Access"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/vnd.readium.position-list+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PositionList"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/readium/books/{book_id}/reading-position": {
+      "get": {
+        "tags": [
+          "readium"
+        ],
+        "summary": "Get Reading Position",
+        "description": "Get where the browser should open this book, whichever device was there last.\n\nNot merely what the browser itself last stored: a reader who left off on their\ne-reader is answered with that place instead, if they were there later. Both\nplaces were stored when they were reached, so nothing is derived to answer\nthis and no EPUB is read.\n\nAlways an object, never 404 and never null: a book nobody has opened is an\nordinary state, and the reader has to be able to tell it apart from a place\nthat was lost when the EPUB was replaced.\n\nBearer-only, like the write: the publication cookie is a credential for a\nbook's files and stays one (#792).",
+        "operationId": "get_reading_position",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "book_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Book Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResumePositionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "readium"
+        ],
+        "summary": "Put Reading Position",
+        "description": "Record where the reader has got to, and keep their reading session going.\n\nBearer-only, though the publication cookie's path scope contains this route: the\ncookie is a read credential and stays one (#792). The position is converted to the\ncanonical KOReader xpointer before anything is stored (ADR-0004 \u00a72) and refused if\nthe conversion is too weak to say where it is. It also extends -- or begins -- a\nreal row in ``reading_sessions``, which is how browser reading reaches the progress\nbar and the reading statistics (ADR-0004, Amendment 3).\n\nA write saying nothing newer than what is stored is answered with what is stored\nrather than refused: the write a closing tab sends and the one a page turn sends\nrace by design.",
+        "operationId": "put_reading_position",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "book_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Book Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReadingPositionUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadingPosition"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The locator names no place this book can be shown to have."
+          },
+          "503": {
+            "description": "The book's stored file cannot be read, so nothing can be placed in it."
+          }
+        }
+      }
+    },
+    "/api/v1/readium/books/{book_id}/resources/{path}": {
+      "get": {
+        "tags": [
+          "readium"
+        ],
+        "summary": "Get Readium Resource",
+        "description": "Get one file of a book's publication, unchanged.\n\n``path`` is a manifest href with the ``resources/`` prefix stripped and\ndecoded once by ASGI, which is the archive member's own name. Only the files\nthe manifest names are reachable.",
+        "operationId": "get_readium_resource",
+        "parameters": [
+          {
+            "name": "book_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Book Id"
+            }
+          },
+          {
+            "name": "path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Path"
+            }
+          },
+          {
+            "name": "publication_access",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Publication Access"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The file, under the media type the publication declares for it.",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "The caller already holds this version."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/books/{book_id}/highlight-locators": {
+      "get": {
+        "tags": [
+          "highlights"
+        ],
+        "summary": "Get Book Highlight Locators",
+        "description": "Get where every one of a book's live highlights is in its EPUB.\n\nOne entry per highlight, in id order, each carrying either a locator or a\nreason there is none -- so a reader can tell a highlight it must not draw\nfrom one it was never told about. Deleted highlights are simply absent.\n\nA locator here was derived when the highlight or the book's EPUB was last\nsynced, and is withheld once the book's EPUB no longer matches the file it\ncame from. Nothing is derived to answer this request.\n\nA book that does not exist, or belongs to another user, answers 404.",
+        "operationId": "get_book_highlight_locators",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "book_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Book Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionResponse_HighlightLocatorResponse_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/highlights/{highlight_id}/locator": {
+      "get": {
+        "tags": [
+          "highlights"
+        ],
+        "summary": "Get Highlight Locator",
+        "description": "Get where one highlight is in its book's EPUB, for opening the reader at it.\n\nEither a locator or a reason there is none, on the same terms as the book's\nwhole list: the locator was derived when the highlight or the book's EPUB\nwas last synced, and is withheld once the book's EPUB no longer matches the\nfile it came from. Nothing is derived to answer this request.\n\nA highlight that does not exist, has been deleted, or belongs to another\nuser, answers 404.",
+        "operationId": "get_highlight_locator",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "highlight_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Highlight Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HighlightLocatorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/semantic/backfill": {
       "post": {
         "tags": [
@@ -4063,14 +4631,82 @@
         ]
       }
     },
-    "/api/v1/semantic/search": {
+    "/api/v1/semantic/related": {
       "get": {
         "tags": [
           "semantic"
         ],
-        "summary": "Search Content",
-        "description": "Rank the user's embedded content by semantic similarity, grouped by content type.\n\n``limit`` applies per group, so no content type can crowd out another. Every\nitem carries its similarity score on one scale, and enough identifiers to\nopen the highlight, note or chapter it came from.",
-        "operationId": "search_content",
+        "summary": "Related Content",
+        "description": "Rank the user's embedded content by similarity to one already-indexed unit.\n\nThe ranked half of ``GET /search``'s body -- the same groups, with ``limit``\napplied per group, so one view can render either; only the unranked ``books``\nof a global search are missing. The anchor is never among its own results,\nand every group is empty when the anchor is not indexed.\n\nHeld to a higher similarity floor than global search: nobody asked for this\nlist, so a weak row costs more than a missing one. When the anchor's\nneighbourhood genuinely spans the library, no single book may take more than\ntwo places in a group, which spreads the page instead of returning one\nbook's chapter-by-chapter neighbours. An anchor whose only real neighbours\nare in its own book keeps them.",
+        "operationId": "related_content",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "content_type",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ContentType"
+            }
+          },
+          {
+            "name": "content_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Content Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 10,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RankedContentGroups"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/search": {
+      "get": {
+        "tags": [
+          "search"
+        ],
+        "summary": "Global Search",
+        "description": "Search the user's library, grouped by content type.\n\nHighlights, notes and chapter digests are ranked by semantic similarity to\nthe query. ``limit`` applies per group, so no content type can crowd out\nanother. Every item in those groups carries its similarity score on one\nscale, and enough identifiers to open the highlight, note or chapter it came\nfrom.\n\nMatches below a similarity floor are dropped rather than replaced, so a\ngroup is short -- or empty -- when the library has nothing to say about the\nquery. Nearest-neighbour search would otherwise always answer with its top\n``limit``, however unrelated.\n\nBooks whose title or author contains the query ride on top of those groups,\nmatched by name rather than meaning, unranked and capped at five. A\n``book_id``-scoped search returns none, which makes that scope a purely\nsemantic read of one book's content.\n\nBooks need no vectors, so this read is not gated on the embeddings feature:\na server with no embedding provider answers the book matches and three\nempty groups.",
+        "operationId": "global_search",
         "security": [
           {
             "OAuth2PasswordBearer": []
@@ -4123,75 +4759,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SemanticSearchResults"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/semantic/related": {
-      "get": {
-        "tags": [
-          "semantic"
-        ],
-        "summary": "Related Content",
-        "description": "Rank the user's embedded content by similarity to one already-indexed unit.\n\nSame body as ``/search``, grouped by content type with ``limit`` applied per\ngroup, so one view can render either. The anchor is never among its own\nresults, and every group is empty when the anchor is not indexed.",
-        "operationId": "related_content",
-        "security": [
-          {
-            "OAuth2PasswordBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "content_type",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "$ref": "#/components/schemas/ContentType"
-            }
-          },
-          {
-            "name": "content_id",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Content Id"
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "maximum": 100,
-              "minimum": 1,
-              "default": 10,
-              "title": "Limit"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SemanticSearchResults"
+                  "$ref": "#/components/schemas/GlobalSearchResults"
                 }
               }
             }
@@ -4272,6 +4840,27 @@
   },
   "components": {
     "schemas": {
+      "ActivityBook": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id",
+            "description": "ID of the book"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title",
+            "description": "Title of the book"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title"
+        ],
+        "title": "ActivityBook",
+        "description": "A book the grid names, as the client needs it: a label and a link."
+      },
       "AppSettingsResponse": {
         "properties": {
           "feature_flags": {
@@ -4389,6 +4978,76 @@
           "epub"
         ],
         "title": "Body_upload_book_epub"
+      },
+      "BookActivity": {
+        "properties": {
+          "unit": {
+            "type": "string",
+            "enum": [
+              "pages",
+              "minutes"
+            ],
+            "title": "Unit",
+            "description": "What each day's value counts. Pages when every session of the book recorded them, minutes otherwise"
+          },
+          "range_start": {
+            "type": "string",
+            "format": "date",
+            "title": "Range Start",
+            "description": "First day of the window the grid spans"
+          },
+          "range_end": {
+            "type": "string",
+            "format": "date",
+            "title": "Range End",
+            "description": "Last day of the window the grid spans"
+          },
+          "days": {
+            "items": {
+              "$ref": "#/components/schemas/BookActivityDay"
+            },
+            "type": "array",
+            "title": "Days",
+            "description": "Days with reading, oldest first"
+          }
+        },
+        "type": "object",
+        "required": [
+          "unit",
+          "range_start",
+          "range_end",
+          "days"
+        ],
+        "title": "BookActivity",
+        "description": "A book's reading laid out day by day, for the activity grid.\n\nSparse on purpose: ``days`` carries only the days with something to show,\noldest first, and the window the grid spans is ``range_start`` to\n``range_end`` regardless. The client fills the gaps."
+      },
+      "BookActivityDay": {
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date",
+            "title": "Date",
+            "description": "The calendar day, in the requested timezone"
+          },
+          "value": {
+            "type": "integer",
+            "title": "Value",
+            "description": "Pages read, or minutes read, per the grid's unit"
+          },
+          "level": {
+            "type": "integer",
+            "title": "Level",
+            "description": "Shade of the square, 1-4; days with nothing are omitted"
+          }
+        },
+        "type": "object",
+        "required": [
+          "date",
+          "value",
+          "level"
+        ],
+        "title": "BookActivityDay",
+        "description": "One coloured square of the reading-activity grid."
       },
       "BookCreate": {
         "properties": {
@@ -4639,6 +5298,13 @@
             "title": "Chapters",
             "description": "List of chapters with highlights"
           },
+          "highlight_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Highlight Count",
+            "description": "Live highlights on the book, including any that sit in no chapter",
+            "default": 0
+          },
           "reading_position": {
             "anyOf": [
               {
@@ -4751,6 +5417,100 @@
         "type": "object",
         "title": "BookReadingStageUpdateRequest",
         "description": "Schema for updating a book's manual reading stage."
+      },
+      "BookReadingStatistics": {
+        "properties": {
+          "session_count": {
+            "type": "integer",
+            "title": "Session Count",
+            "description": "Reading sessions recorded for the book"
+          },
+          "total_reading_seconds": {
+            "type": "integer",
+            "title": "Total Reading Seconds",
+            "description": "Time spent reading the book, in seconds"
+          },
+          "average_session_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Average Session Seconds",
+            "description": "Mean length of a session, in seconds"
+          },
+          "first_session_start": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Session Start",
+            "description": "When the first session began"
+          },
+          "last_session_end": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Session End",
+            "description": "When the last session ended"
+          },
+          "span_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Span Days",
+            "description": "Calendar days from the first session to the last, counted inclusively in the requested timezone"
+          },
+          "progress_percent": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Progress Percent",
+            "description": "How far through the book the reader has got, 0-100"
+          },
+          "activity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookActivity"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Daily reading activity for the grid, or null when there is no day worth colouring"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_count",
+          "total_reading_seconds"
+        ],
+        "title": "BookReadingStatistics",
+        "description": "Schema for what a book's reading sessions add up to.\n\nA field is null when there is nothing to compute it from, rather than zero:\na book nobody has opened has no average session, and one with no recorded\nposition is not at 0% -- it is unknown."
       },
       "BookReflectionResponse": {
         "properties": {
@@ -4880,6 +5640,82 @@
         "title": "BookReflectionUpdateRequest",
         "description": "Schema for upserting a book reflection (full replace)."
       },
+      "BookSearchItem": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "author": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Author"
+          },
+          "cover_file": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cover File"
+          },
+          "cover_blurhash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cover Blurhash"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "author",
+          "cover_file",
+          "cover_blurhash"
+        ],
+        "title": "BookSearchItem",
+        "description": "A book matched by its own title or author, so it carries no score."
+      },
+      "BookUpdateRequest": {
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 5000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description",
+            "description": "Book blurb in Markdown, or null to clear it"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "BookUpdateRequest",
+        "description": "Partial update of a book's own fields.\n\nA field the client omits is left untouched; a field sent as null is\ncleared. The router relies on `model_fields_set` to tell the two apart,\nso never give a field a non-None default."
+      },
       "BookWithHighlightCount": {
         "properties": {
           "id": {
@@ -4993,6 +5829,33 @@
             "description": "Number of flashcards for this book",
             "default": 0
           },
+          "note_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Note Count",
+            "description": "Number of notes for this book, gists aside",
+            "default": 0
+          },
+          "reading_stage": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "to_read",
+                  "skimming",
+                  "reading",
+                  "finished",
+                  "reflected",
+                  "did_not_finish"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reading Stage",
+            "description": "Where the reader is with this book, or null if unset"
+          },
           "end_position": {
             "anyOf": [
               {
@@ -5051,7 +5914,7 @@
           "updated_at"
         ],
         "title": "BookWithHighlightCount",
-        "description": "Schema for Book with highlight and flashcard counts."
+        "description": "Schema for Book with highlight, flashcard and note counts."
       },
       "Bookmark": {
         "properties": {
@@ -5098,6 +5961,157 @@
         ],
         "title": "BookmarkCreateRequest",
         "description": "Schema for creating a new bookmark."
+      },
+      "BrowserLocatorLocationsSchema": {
+        "properties": {
+          "position": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Position",
+            "description": "1-based index into this publication's position list -- the synthetic page the reader is shown"
+          },
+          "progression": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Progression",
+            "description": "How far into this resource the position sits, 0..1"
+          },
+          "totalProgression": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Totalprogression",
+            "description": "How far into the whole publication the position sits, 0..1"
+          },
+          "fragments": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fragments"
+          },
+          "cssSelector": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cssselector",
+            "description": "A querySelector-resolvable selector for the enclosing element"
+          }
+        },
+        "type": "object",
+        "title": "BrowserLocatorLocationsSchema",
+        "description": "A Locator's ``locations``: the same place said in several ways.\n\nEvery field is optional, because a navigator fills in only what its current view\ncan supply. The two numeric ones are bounded here rather than defended downstream,\nbecause both feed arithmetic: ``position`` indexes a list this API served, so past\nits ceiling it indexes no list that could exist and would credit a sitting with\nbillions of pages; a progression is multiplied by a resource's length."
+      },
+      "BrowserLocatorSchema": {
+        "properties": {
+          "href": {
+            "type": "string",
+            "title": "Href",
+            "description": "The resource, as the manifest names it"
+          },
+          "type": {
+            "type": "string",
+            "title": "Type",
+            "description": "The resource's media type"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "locations": {
+            "$ref": "#/components/schemas/BrowserLocatorLocationsSchema",
+            "default": {}
+          },
+          "text": {
+            "$ref": "#/components/schemas/BrowserLocatorTextSchema",
+            "default": {}
+          }
+        },
+        "type": "object",
+        "required": [
+          "href",
+          "type"
+        ],
+        "title": "BrowserLocatorSchema",
+        "description": "A Readium Locator Object as a navigator produces and consumes one."
+      },
+      "BrowserLocatorTextSchema": {
+        "properties": {
+          "before": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Before"
+          },
+          "highlight": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Highlight"
+          },
+          "after": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "After"
+          }
+        },
+        "type": "object",
+        "title": "BrowserLocatorTextSchema",
+        "description": "A Locator's ``text``: what is at the position, and what surrounds it."
       },
       "ChapterContentResponse": {
         "properties": {
@@ -5381,6 +6395,22 @@
         ],
         "title": "CollectionResponse[HighlightLabelInBook]"
       },
+      "CollectionResponse_HighlightLocatorResponse_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/HighlightLocatorResponse"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "title": "CollectionResponse[HighlightLocatorResponse]"
+      },
       "CollectionResponse_NoteWithLinks_": {
         "properties": {
           "items": {
@@ -5396,6 +6426,22 @@
           "items"
         ],
         "title": "CollectionResponse[NoteWithLinks]"
+      },
+      "CollectionResponse_RecentCapture_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RecentCapture"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "title": "CollectionResponse[RecentCapture]"
       },
       "CollectionResponse_Tag_": {
         "properties": {
@@ -6177,6 +7223,47 @@
         "title": "FlashcardWithHighlight",
         "description": "Flashcard response schema with embedded highlight data."
       },
+      "GlobalSearchResults": {
+        "properties": {
+          "highlights": {
+            "items": {
+              "$ref": "#/components/schemas/HighlightSearchItem"
+            },
+            "type": "array",
+            "title": "Highlights"
+          },
+          "notes": {
+            "items": {
+              "$ref": "#/components/schemas/NoteSearchItem"
+            },
+            "type": "array",
+            "title": "Notes"
+          },
+          "digests": {
+            "items": {
+              "$ref": "#/components/schemas/DigestSearchItem"
+            },
+            "type": "array",
+            "title": "Digests"
+          },
+          "books": {
+            "items": {
+              "$ref": "#/components/schemas/BookSearchItem"
+            },
+            "type": "array",
+            "title": "Books"
+          }
+        },
+        "type": "object",
+        "required": [
+          "highlights",
+          "notes",
+          "digests",
+          "books"
+        ],
+        "title": "GlobalSearchResults",
+        "description": "What ``GET /search`` answers: the ranked groups plus books matched by name.\n\n``books`` is unranked and carries no score: a title or author match is not a\nsimilarity, so it cannot be merged into the ranking -- a client that wants\none list puts the books above it."
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -6239,10 +7326,9 @@
           },
           "datetime": {
             "type": "string",
-            "maxLength": 50,
-            "minLength": 1,
+            "format": "date-time",
             "title": "Datetime",
-            "description": "KOReader datetime format"
+            "description": "When the highlight was made, on the device's own clock. Sent without a UTC offset because the e-reader does not know one; KOReader's 'YYYY-MM-DD HH:MM:SS' is accepted on the way in."
           },
           "id": {
             "type": "integer",
@@ -6371,10 +7457,9 @@
           },
           "datetime": {
             "type": "string",
-            "maxLength": 50,
-            "minLength": 1,
+            "format": "date-time",
             "title": "Datetime",
-            "description": "KOReader datetime format"
+            "description": "When the highlight was made, on the device's own clock. Sent without a UTC offset because the e-reader does not know one; KOReader's 'YYYY-MM-DD HH:MM:SS' is accepted on the way in."
           },
           "start_xpoint": {
             "anyOf": [
@@ -6440,14 +7525,14 @@
             "anyOf": [
               {
                 "type": "string",
-                "maxLength": 50
+                "format": "date-time"
               },
               {
                 "type": "null"
               }
             ],
             "title": "Datetime Updated",
-            "description": "KOReader datetime of the last edit on the device; absent until the highlight is first edited. The newest edit wins when devices disagree."
+            "description": "When the highlight was last edited on the device, on that device's own clock; absent until the highlight is first edited. The newest edit wins when devices disagree."
           },
           "is_new": {
             "type": "boolean",
@@ -6714,6 +7799,43 @@
         "title": "HighlightLabelUpdate",
         "description": "Schema for updating a highlight label."
       },
+      "HighlightLocatorResponse": {
+        "properties": {
+          "highlight_id": {
+            "type": "integer",
+            "title": "Highlight Id",
+            "description": "The highlight this answers for"
+          },
+          "locator": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LocatorSchema"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The stored Readium locator, with hrefs in the same coordinates the manifest publishes. Absent whenever `unavailable` is present."
+          },
+          "unavailable": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LocatorUnavailable"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why there is no locator. Absent whenever `locator` is present."
+          }
+        },
+        "type": "object",
+        "required": [
+          "highlight_id"
+        ],
+        "title": "HighlightLocatorResponse",
+        "description": "Where one highlight is in the book's EPUB, or why that cannot be said."
+      },
       "HighlightResponseBase": {
         "properties": {
           "text": {
@@ -6763,10 +7885,9 @@
           },
           "datetime": {
             "type": "string",
-            "maxLength": 50,
-            "minLength": 1,
+            "format": "date-time",
             "title": "Datetime",
-            "description": "KOReader datetime format"
+            "description": "When the highlight was made, on the device's own clock. Sent without a UTC offset because the e-reader does not know one; KOReader's 'YYYY-MM-DD HH:MM:SS' is accepted on the way in."
           },
           "id": {
             "type": "integer",
@@ -6905,6 +8026,7 @@
           },
           "datetime": {
             "type": "string",
+            "format": "date-time",
             "title": "Datetime"
           },
           "cover_file": {
@@ -7098,6 +8220,274 @@
           "updated_at"
         ],
         "title": "JobBatchResponse"
+      },
+      "LibraryActivity": {
+        "properties": {
+          "unit": {
+            "type": "string",
+            "enum": [
+              "pages",
+              "minutes"
+            ],
+            "title": "Unit",
+            "description": "What each day's value counts. Pages as long as any session on the grid recorded them, minutes only when none did"
+          },
+          "range_start": {
+            "type": "string",
+            "format": "date",
+            "title": "Range Start",
+            "description": "First day of the window the grid spans"
+          },
+          "range_end": {
+            "type": "string",
+            "format": "date",
+            "title": "Range End",
+            "description": "Last day of the window the grid spans"
+          },
+          "days": {
+            "items": {
+              "$ref": "#/components/schemas/LibraryActivityDay"
+            },
+            "type": "array",
+            "title": "Days",
+            "description": "Days with reading, oldest first"
+          },
+          "books": {
+            "items": {
+              "$ref": "#/components/schemas/ActivityBook"
+            },
+            "type": "array",
+            "title": "Books",
+            "description": "Every book the days name, alphabetically by title"
+          }
+        },
+        "type": "object",
+        "required": [
+          "unit",
+          "range_start",
+          "range_end",
+          "days",
+          "books"
+        ],
+        "title": "LibraryActivity",
+        "description": "Every book's reading laid out day by day, for the activity grid.\n\nSparse twice over: ``days`` carries only the days worth drawing, and each\ntitle is sent once in ``books`` for the days to reference by id."
+      },
+      "LibraryActivityDay": {
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date",
+            "title": "Date",
+            "description": "The calendar day, in the requested timezone"
+          },
+          "value": {
+            "type": "integer",
+            "title": "Value",
+            "description": "Pages read, or minutes read, per the grid's unit"
+          },
+          "level": {
+            "type": "integer",
+            "title": "Level",
+            "description": "Shade of the square, 1-4; days with nothing are omitted"
+          },
+          "book_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Book Ids",
+            "description": "Books read that day, in the order the reader opened them. A book that got through nothing that day is listed all the same"
+          }
+        },
+        "type": "object",
+        "required": [
+          "date",
+          "value",
+          "level",
+          "book_ids"
+        ],
+        "title": "LibraryActivityDay",
+        "description": "One coloured square, and which books the reader spent it on."
+      },
+      "LibraryReadingActivityResponse": {
+        "properties": {
+          "activity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LibraryActivity"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The reader's daily activity, or null when there is no day worth colouring"
+          },
+          "stats": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LibraryStats"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What that activity adds up to, or null whenever there is no activity"
+          }
+        },
+        "type": "object",
+        "title": "LibraryReadingActivityResponse",
+        "description": "Schema for what every book of a reader's adds up to, day by day."
+      },
+      "LibraryStats": {
+        "properties": {
+          "last_read": {
+            "type": "string",
+            "format": "date",
+            "title": "Last Read",
+            "description": "Most recent day with reading on the grid"
+          },
+          "seconds_today": {
+            "type": "integer",
+            "title": "Seconds Today",
+            "description": "Seconds read today, zero on a day nothing has been opened yet"
+          },
+          "total_seconds": {
+            "type": "integer",
+            "title": "Total Seconds",
+            "description": "Seconds read over the whole window"
+          },
+          "streak_days": {
+            "type": "integer",
+            "title": "Streak Days",
+            "description": "Days read in a row, counting back from today; a today with no reading yet does not end a streak"
+          },
+          "days_read": {
+            "type": "integer",
+            "title": "Days Read",
+            "description": "Days in the window with reading on them"
+          },
+          "books_read": {
+            "type": "integer",
+            "title": "Books Read",
+            "description": "Books the window's reading covered"
+          }
+        },
+        "type": "object",
+        "required": [
+          "last_read",
+          "seconds_today",
+          "total_seconds",
+          "streak_days",
+          "days_read",
+          "books_read"
+        ],
+        "title": "LibraryStats",
+        "description": "The year on the grid, said in numbers rather than squares.\n\nCounted over the same window as ``LibraryActivity``, but from the sessions:\na day that got through no pages is a day read with no square to show for it."
+      },
+      "LocatorLocationsSchema": {
+        "properties": {
+          "progression": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Progression"
+          },
+          "cssSelector": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cssselector"
+          }
+        },
+        "type": "object",
+        "title": "LocatorLocationsSchema",
+        "description": "A Locator's ``locations``: the ways a derivation can express the position."
+      },
+      "LocatorSchema": {
+        "properties": {
+          "href": {
+            "type": "string",
+            "title": "Href"
+          },
+          "type": {
+            "type": "string",
+            "title": "Type"
+          },
+          "locations": {
+            "$ref": "#/components/schemas/LocatorLocationsSchema"
+          },
+          "text": {
+            "$ref": "#/components/schemas/LocatorTextSchema"
+          }
+        },
+        "type": "object",
+        "required": [
+          "href",
+          "type",
+          "locations",
+          "text"
+        ],
+        "title": "LocatorSchema",
+        "description": "A Readium Locator naming one place in a publication."
+      },
+      "LocatorTextSchema": {
+        "properties": {
+          "before": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Before"
+          },
+          "highlight": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Highlight"
+          },
+          "after": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "After"
+          }
+        },
+        "type": "object",
+        "title": "LocatorTextSchema",
+        "description": "A Locator's ``text``: the anchored text and what surrounds it."
+      },
+      "LocatorUnavailable": {
+        "type": "string",
+        "enum": [
+          "no_ebook",
+          "unresolved"
+        ],
+        "title": "LocatorUnavailable",
+        "description": "Why a highlight has no locator, in terms a client can act on.\n\n``no_ebook`` is the book's problem: it has no stored publication, so it\ncannot be opened in the reader at all and nothing is wrong with any of its\nhighlights. ``unresolved`` is this one highlight's -- no locator was ever\nderived for it, or the stored one belongs to a file the book no longer\nholds."
       },
       "Note": {
         "properties": {
@@ -7684,6 +9074,28 @@
         ],
         "title": "PaginatedResponse[ReadingSession]"
       },
+      "PositionList": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "positions": {
+            "items": {
+              "$ref": "#/components/schemas/ReadiumLocator"
+            },
+            "type": "array",
+            "title": "Positions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total",
+          "positions"
+        ],
+        "title": "PositionList",
+        "description": "The document a publication's ``position-list`` link resolves to.\n\n``total`` is redundant with the length of ``positions`` and is what the\nformat states anyway: a reader showing \"page 7 of 240\" needs the count, and\nreading it off the array only works for a reader that fetched the whole\narray."
+      },
       "PositionResponse": {
         "properties": {
           "index": {
@@ -7704,6 +9116,118 @@
         ],
         "title": "PositionResponse",
         "description": "Position in a book document."
+      },
+      "PublicationSession": {
+        "properties": {
+          "expires_in": {
+            "type": "integer",
+            "title": "Expires In"
+          }
+        },
+        "type": "object",
+        "required": [
+          "expires_in"
+        ],
+        "title": "PublicationSession",
+        "description": "What a reader learns when it is handed a publication cookie."
+      },
+      "RankedContentGroups": {
+        "properties": {
+          "highlights": {
+            "items": {
+              "$ref": "#/components/schemas/HighlightSearchItem"
+            },
+            "type": "array",
+            "title": "Highlights"
+          },
+          "notes": {
+            "items": {
+              "$ref": "#/components/schemas/NoteSearchItem"
+            },
+            "type": "array",
+            "title": "Notes"
+          },
+          "digests": {
+            "items": {
+              "$ref": "#/components/schemas/DigestSearchItem"
+            },
+            "type": "array",
+            "title": "Digests"
+          }
+        },
+        "type": "object",
+        "required": [
+          "highlights",
+          "notes",
+          "digests"
+        ],
+        "title": "RankedContentGroups",
+        "description": "Matches ranked against the embeddings index, grouped by content type.\n\nEvery group is present even when empty, and every item carries its score on\none scale, so a client can merge the groups back into a single ranked list.\n\nThe whole of what ``GET /semantic/related`` answers, and the ranked half of\nglobal search."
+      },
+      "ReadingPosition": {
+        "properties": {
+          "locator": {
+            "$ref": "#/components/schemas/BrowserLocatorSchema",
+            "description": "The position, ready to navigate to"
+          },
+          "xpoint": {
+            "type": "string",
+            "title": "Xpoint",
+            "description": "The same position in the format both readers agree on"
+          },
+          "position": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PositionResponse"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The position in document order, or null when it could not be placed"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At",
+            "description": "When this position was recorded"
+          }
+        },
+        "type": "object",
+        "required": [
+          "locator",
+          "xpoint",
+          "updated_at"
+        ],
+        "title": "ReadingPosition",
+        "description": "Where a reader last was in a book, as the browser gets it back."
+      },
+      "ReadingPositionUpdate": {
+        "properties": {
+          "locator": {
+            "$ref": "#/components/schemas/BrowserLocatorSchema",
+            "description": "Where the reader now is"
+          },
+          "recorded_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Recorded At",
+            "description": "When the reader was there, by their own clock. Never read as later than the moment the request arrives."
+          },
+          "closing": {
+            "type": "boolean",
+            "title": "Closing",
+            "description": "Whether the reader is leaving the book. The position is stored either way; this ends the reading session rather than leaving it to be extended.",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "locator",
+          "recorded_at"
+        ],
+        "title": "ReadingPositionUpdate",
+        "description": "What the reader sends when they have moved."
       },
       "ReadingSession": {
         "properties": {
@@ -7764,30 +9288,6 @@
             "title": "End Page",
             "description": "End page number"
           },
-          "content": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Content",
-            "description": "Extracted text content of the session"
-          },
-          "ai_summary": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Ai Summary",
-            "description": "AI generated summary of the read content"
-          },
           "id": {
             "type": "integer",
             "title": "Id"
@@ -7819,21 +9319,6 @@
         ],
         "title": "ReadingSession",
         "description": "Schema for ReadingSession response."
-      },
-      "ReadingSessionAISummaryResponse": {
-        "properties": {
-          "summary": {
-            "type": "string",
-            "title": "Summary",
-            "description": "AI-generated summary of the reading session"
-          }
-        },
-        "type": "object",
-        "required": [
-          "summary"
-        ],
-        "title": "ReadingSessionAISummaryResponse",
-        "description": "Schema for AI summary response."
       },
       "ReadingSessionSyncItem": {
         "properties": {
@@ -7987,6 +9472,321 @@
         "title": "ReadingSessionSyncResponse",
         "description": "Schema for reading session sync response.\n\nNote: If any session is invalid,\nthe entire request fails with 422 and this response is never returned."
       },
+      "ReadiumLink": {
+        "properties": {
+          "href": {
+            "type": "string",
+            "title": "Href"
+          },
+          "type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Type"
+          },
+          "rel": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rel"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "properties": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReadiumProperties"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "children": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ReadiumLink"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Children"
+          }
+        },
+        "type": "object",
+        "required": [
+          "href"
+        ],
+        "title": "ReadiumLink",
+        "description": "A Readium Link Object.\n\nOne shape serves the reading order, the resource list, the manifest's own\nlinks and the table of contents, because the spec models all four as Links."
+      },
+      "ReadiumLocations": {
+        "properties": {
+          "position": {
+            "type": "integer",
+            "title": "Position"
+          },
+          "progression": {
+            "type": "number",
+            "title": "Progression"
+          },
+          "totalProgression": {
+            "type": "number",
+            "title": "Totalprogression"
+          }
+        },
+        "type": "object",
+        "required": [
+          "position",
+          "progression",
+          "totalProgression"
+        ],
+        "title": "ReadiumLocations",
+        "description": "A Locator's ``locations``: where a position is, in every way it can be said.\n\nOnly the three a position list carries are modelled. A derived highlight\nlocator (ADR-0004 \u00a72) says where it is with a CSS selector and a text quote\ninstead, and gets its own shape when it arrives."
+      },
+      "ReadiumLocator": {
+        "properties": {
+          "href": {
+            "type": "string",
+            "title": "Href"
+          },
+          "type": {
+            "type": "string",
+            "title": "Type"
+          },
+          "locations": {
+            "$ref": "#/components/schemas/ReadiumLocations"
+          }
+        },
+        "type": "object",
+        "required": [
+          "href",
+          "type",
+          "locations"
+        ],
+        "title": "ReadiumLocator",
+        "description": "A Readium Locator Object naming one position of a publication."
+      },
+      "ReadiumMetadata": {
+        "properties": {
+          "@type": {
+            "type": "string",
+            "title": "@Type",
+            "default": "http://schema.org/Book"
+          },
+          "conformsTo": {
+            "type": "string",
+            "title": "Conformsto",
+            "default": "https://readium.org/webpub-manifest/profiles/epub"
+          },
+          "identifier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Identifier"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "author": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Author"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          }
+        },
+        "type": "object",
+        "required": [
+          "title"
+        ],
+        "title": "ReadiumMetadata",
+        "description": "The manifest's ``metadata`` object."
+      },
+      "ReadiumProperties": {
+        "properties": {
+          "layout": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Layout"
+          }
+        },
+        "type": "object",
+        "title": "ReadiumProperties",
+        "description": "A Link's ``properties``; only ``layout`` is populated today."
+      },
+      "RecentCapture": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "highlight",
+              "note"
+            ],
+            "title": "Kind",
+            "description": "What this capture is"
+          },
+          "id": {
+            "type": "integer",
+            "title": "Id",
+            "description": "ID of the highlight or the note"
+          },
+          "book_id": {
+            "type": "integer",
+            "title": "Book Id",
+            "description": "Book the capture belongs to"
+          },
+          "book_title": {
+            "type": "string",
+            "title": "Book Title",
+            "description": "Title of that book"
+          },
+          "chapter_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chapter Name",
+            "description": "Chapter the highlight sits in; null for a note"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title",
+            "description": "Title of the note; null for a highlight"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text",
+            "description": "The highlighted passage, or the note's body"
+          },
+          "note_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note Kind",
+            "description": "Kind of the note; null for a highlight"
+          },
+          "page": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page",
+            "description": "Page the highlight was made on, where known"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HighlightLabel"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The highlight's resolved label; null for a note"
+          },
+          "captured_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Captured At",
+            "description": "When the capture was made, as a local wall clock with no offset: the e-reader's own for a highlight, the reader's zone for a note"
+          },
+          "day": {
+            "type": "string",
+            "format": "date",
+            "title": "Day",
+            "description": "Calendar day the capture is filed under"
+          },
+          "more_in_book": {
+            "type": "integer",
+            "title": "More In Book",
+            "description": "Captures of the same book, day and kind the feed does not show. Non-zero on the last capture of that book, day and kind, zero everywhere else"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "id",
+          "book_id",
+          "book_title",
+          "text",
+          "captured_at",
+          "day",
+          "more_in_book"
+        ],
+        "title": "RecentCapture",
+        "description": "One highlight or note in the feed of what the reader last captured."
+      },
       "RefreshTokenRequest": {
         "properties": {
           "refresh_token": {
@@ -8004,6 +9804,63 @@
         "type": "object",
         "title": "RefreshTokenRequest",
         "description": "Request body for refresh token (used by plugins)."
+      },
+      "ResumePositionResponse": {
+        "properties": {
+          "locator": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BrowserLocatorSchema"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where to open the book, in the coordinates the manifest publishes, or null when there is nowhere to resume to"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResumeSource"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Which reader the position came from -- 'web' for this browser's own stored place, 'koreader' for the end of a session synced from an e-reader. Null when the book has been read nowhere."
+          },
+          "unresolved": {
+            "type": "boolean",
+            "title": "Unresolved",
+            "description": "Whether a place was recorded that cannot be placed in the EPUB this server now holds -- typically the file has been replaced. The book opens at the beginning and the reader is told their place was lost.",
+            "default": false
+          },
+          "recorded_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recorded At",
+            "description": "When the reader was at this position, by their own device's clock"
+          }
+        },
+        "type": "object",
+        "title": "ResumePositionResponse",
+        "description": "Where the web reader should open a book, whichever device was there last.\n\nRead it as: navigate to ``locator`` if there is one; otherwise start at the\nbeginning, and say so if ``unresolved``."
+      },
+      "ResumeSource": {
+        "type": "string",
+        "enum": [
+          "web",
+          "koreader"
+        ],
+        "title": "ResumeSource",
+        "description": "Which reader the position being resumed from came from."
       },
       "SearchBookRef": {
         "properties": {
@@ -8047,39 +9904,6 @@
         ],
         "title": "SearchBookRef",
         "description": "A book a search result belongs to."
-      },
-      "SemanticSearchResults": {
-        "properties": {
-          "highlights": {
-            "items": {
-              "$ref": "#/components/schemas/HighlightSearchItem"
-            },
-            "type": "array",
-            "title": "Highlights"
-          },
-          "notes": {
-            "items": {
-              "$ref": "#/components/schemas/NoteSearchItem"
-            },
-            "type": "array",
-            "title": "Notes"
-          },
-          "digests": {
-            "items": {
-              "$ref": "#/components/schemas/DigestSearchItem"
-            },
-            "type": "array",
-            "title": "Digests"
-          }
-        },
-        "type": "object",
-        "required": [
-          "highlights",
-          "notes",
-          "digests"
-        ],
-        "title": "SemanticSearchResults",
-        "description": "One search's matches, grouped by content type.\n\nEvery group is present even when empty, and every item carries its score on\none scale, so a client can merge the groups back into a single ranked list."
       },
       "SendChatMessageRequest": {
         "properties": {
@@ -8538,6 +10362,56 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "WebPublicationManifest": {
+        "properties": {
+          "@context": {
+            "type": "string",
+            "title": "@Context",
+            "default": "https://readium.org/webpub-manifest/context.jsonld"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/ReadiumMetadata"
+          },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/ReadiumLink"
+            },
+            "type": "array",
+            "title": "Links"
+          },
+          "readingOrder": {
+            "items": {
+              "$ref": "#/components/schemas/ReadiumLink"
+            },
+            "type": "array",
+            "title": "Readingorder"
+          },
+          "resources": {
+            "items": {
+              "$ref": "#/components/schemas/ReadiumLink"
+            },
+            "type": "array",
+            "title": "Resources"
+          },
+          "toc": {
+            "items": {
+              "$ref": "#/components/schemas/ReadiumLink"
+            },
+            "type": "array",
+            "title": "Toc"
+          }
+        },
+        "type": "object",
+        "required": [
+          "metadata",
+          "links",
+          "readingOrder",
+          "resources",
+          "toc"
+        ],
+        "title": "WebPublicationManifest",
+        "description": "A complete Readium Web Publication Manifest."
       }
     },
     "securitySchemes": {

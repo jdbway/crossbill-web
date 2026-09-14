@@ -1,14 +1,21 @@
-import { useDeleteBook } from '@/api/generated/books/books.ts';
+import { useDeleteBook, useUpdateBook } from '@/api/generated/books/books.ts';
 import { BookDetails } from '@/api/generated/model';
 import { BookCover } from '@/components/BookCover.tsx';
 import { CommonDialog } from '@/components/dialogs/CommonDialog.tsx';
 import { ConfirmationDialog } from '@/components/dialogs/ConfirmationDialog.tsx';
+import { RHFTextField } from '@/components/inputs/RHFTextField.tsx';
 import { useMutationErrorHandler } from '@/hooks/useMutationErrorHandler.ts';
 import { useCacheEvents } from '@/lib/cacheEvents.ts';
 import { DeleteIcon } from '@/theme/Icons.tsx';
 import { Box, Button, Typography } from '@mui/material';
 import { useNavigate } from '@tanstack/react-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useForm } from 'react-hook-form';
+
+const BLURB_MAX_LENGTH = 5000;
+
+const seedBlurb = (description: string | null | undefined) =>
+  (description ?? '').slice(0, BLURB_MAX_LENGTH);
 
 interface BookEditDialogProps {
   book: BookDetails;
@@ -27,7 +34,7 @@ export const BookEditDialog = ({ book, open, onClose }: BookEditDialogProps) => 
       onSuccess: () => {
         cache.booksListChanged();
         onClose();
-        navigate({ to: '/' });
+        navigate({ to: '/library' });
       },
       onError: mutationErrorHandler('delete book'),
     },
@@ -44,27 +51,58 @@ export const BookEditDialog = ({ book, open, onClose }: BookEditDialogProps) => 
 
   const isDeleting = deleteBookMutation.isPending;
 
+  const {
+    control,
+    handleSubmit,
+    reset,
+    formState: { isDirty },
+  } = useForm<{ description: string }>({
+    defaultValues: { description: seedBlurb(book.description) },
+  });
+
+  useEffect(() => {
+    if (open) reset({ description: seedBlurb(book.description) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  const updateBookMutation = useUpdateBook({
+    mutation: {
+      onSuccess: () => {
+        cache.bookChanged(book.id);
+        onClose();
+      },
+      onError: mutationErrorHandler('save blurb'),
+    },
+  });
+
+  const onSubmit = ({ description }: { description: string }) =>
+    updateBookMutation.mutate({
+      bookId: book.id,
+      data: { description: description.trim() || null },
+    });
+
+  const isSaving = updateBookMutation.isPending;
+
   return (
     <CommonDialog
       open={open}
       onClose={onClose}
       maxWidth="sm"
-      isLoading={isDeleting}
-      title="Manage Book"
+      isLoading={isDeleting || isSaving}
+      title="Manage book"
       footerActions={
-        <>
+        <Box sx={{ display: 'flex', gap: 1, width: '100%', justifyContent: 'flex-end' }}>
+          <Button onClick={onClose} disabled={isSaving || isDeleting}>
+            Cancel
+          </Button>
           <Button
-            onClick={handleDelete}
-            color="error"
-            startIcon={<DeleteIcon />}
-            disabled={isDeleting}
+            onClick={handleSubmit(onSubmit)}
+            variant="contained"
+            disabled={!isDirty || isSaving || isDeleting}
           >
-            {isDeleting ? 'Deleting...' : 'Delete'}
+            {isSaving ? 'Saving...' : 'Save'}
           </Button>
-          <Button onClick={onClose} disabled={isDeleting}>
-            Close
-          </Button>
-        </>
+        </Box>
       }
     >
       <Box
@@ -91,6 +129,7 @@ export const BookEditDialog = ({ book, open, onClose }: BookEditDialogProps) => 
             width="120px"
             height="180px"
             objectFit="cover"
+            sx={{ borderRadius: 1 }}
           />
           <Box
             sx={{
@@ -109,7 +148,7 @@ export const BookEditDialog = ({ book, open, onClose }: BookEditDialogProps) => 
                 color: 'text.secondary',
               }}
             >
-              {book.author || 'Unknown Author'}
+              {book.author || 'Unknown author'}
             </Typography>
             {book.isbn && (
               <Typography
@@ -122,16 +161,42 @@ export const BookEditDialog = ({ book, open, onClose }: BookEditDialogProps) => 
                 ISBN: {book.isbn}
               </Typography>
             )}
+            <Button
+              onClick={handleDelete}
+              color="error"
+              size="small"
+              startIcon={<DeleteIcon />}
+              disabled={isDeleting || isSaving}
+              sx={{ mt: 1 }}
+            >
+              {isDeleting ? 'Deleting...' : 'Delete'}
+            </Button>
           </Box>
         </Box>
+
+        <RHFTextField
+          name="description"
+          control={control}
+          label="Blurb"
+          multiline
+          minRows={4}
+          maxRows={5}
+          fullWidth
+          disabled={isSaving}
+          slotProps={{ htmlInput: { maxLength: BLURB_MAX_LENGTH } }}
+          helperText={
+            (book.description?.length ?? 0) > BLURB_MAX_LENGTH
+              ? `Shortened to the ${BLURB_MAX_LENGTH}-character limit. Markdown is supported.`
+              : "Markdown is supported. Shown under the book's title."
+          }
+        />
       </Box>
 
       <ConfirmationDialog
         open={deleteConfirmOpen}
         onClose={() => setDeleteConfirmOpen(false)}
         onConfirm={handleConfirmDelete}
-        title="Delete Book"
-        message={`Are you sure you want to delete "${book.title}"? This will permanently delete the book and all its highlights.`}
+        message={`Delete the book "${book.title}"? Its highlights go too.`}
         confirmText="Delete"
         confirmColor="error"
         isLoading={isDeleting}

@@ -2,6 +2,7 @@ import type { Bookmark, Highlight } from '@/api/generated/model';
 import { HighlightCard } from '@/components/cards/HighlightCard.tsx';
 import { ChapterGroupedList } from '@/pages/BookPage/common/ChapterGroupedList.tsx';
 import { Typography } from '@mui/material';
+import type { ReactNode } from 'react';
 
 export interface ChapterData {
   id: number;
@@ -13,18 +14,18 @@ export interface ChapterData {
 interface ChapterListProps {
   chapters: ChapterData[];
   bookmarksByHighlightId: Record<number, Bookmark>;
+  noteCountByHighlightId: Record<number, number>;
   isLoading?: boolean;
-  emptyMessage?: string;
-  animationKey?: string;
+  emptyState?: ReactNode;
   onOpenHighlight?: (highlightId: number) => void;
 }
 
 export const HighlightsList = ({
   chapters,
   bookmarksByHighlightId,
+  noteCountByHighlightId,
   isLoading,
-  emptyMessage = 'No chapters found.',
-  animationKey = 'chapters',
+  emptyState,
   onOpenHighlight,
 }: ChapterListProps) => (
   <ChapterGroupedList
@@ -33,15 +34,15 @@ export const HighlightsList = ({
     getChapterName={(chapter) => chapter.name}
     getItems={(chapter) => chapter.highlights}
     getItemKey={(highlight) => highlight.id}
-    ariaLabel={(chapterName) => `Highlights in ${chapterName}`}
+    ariaLabel={(chapter) => `Highlights in ${chapter.name}`}
     isLoading={isLoading}
-    emptyMessage={emptyMessage}
-    animationKey={animationKey}
+    emptyState={emptyState}
     cardListSx={{ gap: 2.5 }}
     renderItem={(highlight) => (
       <HighlightCard
         highlight={highlight}
         bookmark={bookmarksByHighlightId[highlight.id]}
+        noteCount={noteCountByHighlightId[highlight.id]}
         onOpenModal={onOpenHighlight}
       />
     )}

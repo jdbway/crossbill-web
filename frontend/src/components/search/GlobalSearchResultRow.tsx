@@ -1,10 +1,13 @@
 import { BookCover } from '@/components/BookCover.tsx';
+import { MetadataRow } from '@/components/cards/MetadataRow.tsx';
+import { GLOBAL_SEARCH_INSET_X } from '@/components/search/globalSearchLayout.ts';
 import {
   globalSearchRowDomId,
   rowLinkProps,
   SEARCH_ROW_TYPE_LABELS,
   type GlobalSearchRow,
 } from '@/components/search/globalSearchRows.ts';
+import { clampToLines } from '@/utils/clampToLines.ts';
 import { Box, Chip, ListItemButton, Stack, Typography } from '@mui/material';
 import { createLink } from '@tanstack/react-router';
 
@@ -17,14 +20,6 @@ import { createLink } from '@tanstack/react-router';
  * without that collision.
  */
 const LinkListItemButton = createLink(ListItemButton);
-
-/** Two lines of matched text, clamped rather than truncated in JS. */
-const clampToTwoLines = {
-  display: '-webkit-box',
-  WebkitLineClamp: 2,
-  WebkitBoxOrient: 'vertical' as const,
-  overflow: 'hidden',
-};
 
 interface GlobalSearchResultRowProps {
   row: GlobalSearchRow;
@@ -41,7 +36,7 @@ export const GlobalSearchResultRow = ({ row, isActive, onSelect }: GlobalSearchR
     aria-selected={isActive}
     selected={isActive}
     onClick={onSelect}
-    sx={{ alignItems: 'center', gap: 1.5, py: 1.5, display: 'flex' }}
+    sx={{ alignItems: 'center', gap: 2, px: GLOBAL_SEARCH_INSET_X, py: 2, display: 'flex' }}
   >
     <BookCover
       coverFile={row.coverFile}
@@ -52,21 +47,26 @@ export const GlobalSearchResultRow = ({ row, isActive, onSelect }: GlobalSearchR
       objectFit="cover"
       sx={{ borderRadius: 0.5, flexShrink: 0 }}
     />
-    <Stack sx={{ minWidth: 0 }} spacing={0.25}>
+    <Stack sx={{ minWidth: 0 }} spacing={0.75}>
       {row.title && (
         <Typography variant="subtitle2" noWrap>
           {row.title}
         </Typography>
       )}
       <Box sx={{ gap: 1, display: 'flex', alignItems: 'center' }}>
-        <Chip label={SEARCH_ROW_TYPE_LABELS[row.type]} size="small" variant="outlined" />
-        <Typography variant="caption" color="text.secondary" noWrap>
-          {row.chapterLabel ? `${row.bookTitle} · ${row.chapterLabel}` : row.bookTitle}
-        </Typography>
+        <Chip label={SEARCH_ROW_TYPE_LABELS[row.type]} variant="outlined" />
+        {/* A book row's title line is already the book title. */}
+        <MetadataRow
+          variant="caption"
+          noWrap
+          items={row.type === 'book' ? [row.chapterLabel] : [row.bookTitle, row.chapterLabel]}
+        />
       </Box>
-      <Typography variant="body1" sx={clampToTwoLines}>
-        {row.text}
-      </Typography>
+      {row.text && (
+        <Typography variant="body1" sx={clampToLines(2)}>
+          {row.text}
+        </Typography>
+      )}
     </Stack>
   </LinkListItemButton>
 );
