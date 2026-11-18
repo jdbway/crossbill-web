@@ -30,6 +30,7 @@ from src.domain.common.exceptions import (
     EntityNotFoundError,
     ValidationError,
 )
+from src.domain.library.exceptions import InvalidEbookError
 from src.domain.web_reader.exceptions import BookFileUnreadableError, UnresolvablePositionError
 from src.infrastructure.common.client_ip import client_ip, client_ip_from_scope, proxy_chain
 from src.infrastructure.common.openapi import operation_id
@@ -74,6 +75,7 @@ from src.infrastructure.tagging.routers import tags as tagging_tags
 from src.infrastructure.web_reader.routers import (
     highlight_locators as web_reader_highlight_locators,
 )
+from src.infrastructure.web_reader.routers import highlights as web_reader_highlights
 from src.infrastructure.web_reader.routers import readium as web_reader_readium
 
 settings = get_settings()
@@ -380,6 +382,9 @@ SAFE_MESSAGES: dict[int, str] = {
     503: "The server cannot serve this request at the moment.",
 }
 
+# Their messages describe only a problem with the caller's own ebook file.
+PUBLIC_MESSAGE_ERRORS: tuple[type[DomainError], ...] = (InvalidEbookError,)
+
 
 # Exception handlers
 @app.exception_handler(DomainError)
@@ -417,7 +422,11 @@ async def domain_error_handler(request: Request, exc: DomainError) -> JSONRespon
         status_code=status_code,
         content={
             "error": error_key,
-            "message": SAFE_MESSAGES[status_code],
+            "message": (
+                exc.message
+                if isinstance(exc, PUBLIC_MESSAGE_ERRORS)
+                else SAFE_MESSAGES[status_code]
+            ),
         },
         headers=headers or None,
     )
@@ -486,6 +495,7 @@ app.include_router(reflection_router.router, prefix=settings.API_V1_PREFIX)
 # Web reader
 app.include_router(web_reader_readium.router, prefix=settings.API_V1_PREFIX)
 app.include_router(web_reader_highlight_locators.router, prefix=settings.API_V1_PREFIX)
+app.include_router(web_reader_highlights.router, prefix=settings.API_V1_PREFIX)
 
 # Semantic search
 app.include_router(semantic_router.router, prefix=settings.API_V1_PREFIX)

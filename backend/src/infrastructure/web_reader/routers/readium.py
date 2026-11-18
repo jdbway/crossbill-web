@@ -2,13 +2,12 @@
 
 import re
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import JSONResponse
 from starlette import status
 
-from src.application.web_reader.anchors import Locator, LocatorLocations, LocatorText
 from src.application.web_reader.commands.save_reading_position_use_case import (
     SaveReadingPositionUseCase,
 )
@@ -45,7 +44,7 @@ from src.infrastructure.identity import AuthenticatedCaller, get_authenticated_c
 from src.infrastructure.identity.dependencies import get_current_user
 from src.infrastructure.reading.routers.reader_clock import reader_now
 from src.infrastructure.web_reader.dependencies import PublicationReader
-from src.infrastructure.web_reader.schemas.locator_builders import container_href, served_href
+from src.infrastructure.web_reader.schemas.locator_builders import anchor_locator, served_href
 from src.infrastructure.web_reader.schemas.reading_position_schemas import (
     BrowserLocatorSchema,
     ReadingPosition,
@@ -121,12 +120,37 @@ def set_publication_cookie(response: Response, book_id: int, token: PublicationT
         value=token.value,
         httponly=True,
         secure=settings.COOKIE_SECURE,
-        samesite="strict",
+        samesite=_publication_cookie_samesite(settings.COOKIE_SECURE),
         # The path is the scoping: a browser sends this cookie only to the routes
         # under it, so one book's credential never reaches another's.
         path=f"{settings.API_V1_PREFIX}/readium/books/{book_id}/",
         max_age=token.expires_in,
     )
+
+
+def _publication_cookie_samesite(cookie_secure: bool) -> Literal["none", "lax"]:
+    """Pick the widest ``SameSite`` the deployment's scheme allows (#838).
+
+    ``none`` is not a relaxation of same-site policy here, it is the only value
+    that works at all: the requests this cookie exists for are a chapter's own
+    images, stylesheets and fonts, asked for by a ``blob:`` document Readium
+    builds, and WebKit treats that document as cross-site. Under ``strict`` --
+    and under ``lax``, which is no better -- Safari sends no cookie, the book's
+    own cover 401s, and the reader draws a broken image where the page should
+    be. Chromium counts the same document same-site, which is why nothing but
+    Safari ever showed it.
+
+    Every route the cookie authenticates is a GET of one book's files, scoped by
+    path and expiring with the access token that minted it, so a cookie a
+    cross-site embed can spend buys a response it cannot read for want of CORS.
+    The write, ``PUT .../reading-position``, is Bearer-only and stays that way.
+
+    ``none`` requires ``Secure`` (RFC 6265bis §5.5), so a plain-http development
+    server would have the cookie rejected outright rather than merely withheld.
+    There it falls back to ``lax``, which is what it can have: Safari cannot read
+    an illustrated book against plain http, and every other browser can.
+    """
+    return "none" if cookie_secure else "lax"
 
 
 @router.post(
@@ -309,7 +333,7 @@ async def put_reading_position(
     stored = await use_case.save_reading_position(
         book_id=book_id,
         user_id=current_user.id.value,
-        locator=_anchor_locator(update.locator),
+        locator=anchor_locator(update.locator),
         stored_locator=update.locator.model_dump(mode="json", by_alias=True, exclude_none=True),
         recorded_at=update.recorded_at,
         now=now,
@@ -330,30 +354,6 @@ def _reading_position(stored: WebReadingPosition) -> ReadingPosition:
         if stored.position
         else None,
         updated_at=stored.updated_at,
-    )
-
-
-def _anchor_locator(locator: BrowserLocatorSchema) -> Locator:
-    """Read a navigator's locator into the vocabulary the anchor port speaks.
-
-    The href is the one translation that matters: every href a navigator ever saw came
-    out of the manifest or the position list, so it names this endpoint's URL for a
-    file rather than the file's path inside the container -- and the container path is
-    what a conversion against the EPUB resolves.
-    """
-    return Locator(
-        href=container_href(locator.href),
-        type=locator.type,
-        locations=LocatorLocations(
-            progression=locator.locations.progression,
-            css_selector=locator.locations.css_selector,
-            fragments=tuple(locator.locations.fragments or ()),
-        ),
-        text=LocatorText(
-            before=locator.text.before,
-            highlight=locator.text.highlight,
-            after=locator.text.after,
-        ),
     )
 
 

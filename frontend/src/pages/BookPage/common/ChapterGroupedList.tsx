@@ -3,6 +3,7 @@ import { EmptyStateText } from '@/components/EmptyStateText.tsx';
 import { SectionTitle } from '@/components/typography/SectionTitle.tsx';
 import { Box, Typography, type SxProps, type Theme } from '@mui/material';
 import type { ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 
 interface ChapterGroupedListProps<TChapter, TItem> {
   chapters: TChapter[];
@@ -38,20 +39,22 @@ export const ChapterGroupedList = <TChapter, TItem>({
   renderItem,
   ariaLabel,
   isLoading,
-  emptyState = <EmptyStateText>No chapters found.</EmptyStateText>,
+  emptyState,
   cardListSx,
   renderEmptyChapter,
 }: ChapterGroupedListProps<TChapter, TItem>) => {
+  const { t } = useTranslation();
+
   if (isLoading) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
         <Typography
           variant="body2"
           sx={{
             color: 'text.secondary',
           }}
         >
-          Searching...
+          {t('book.common.chapterGroupedList.searching')}
         </Typography>
       </Box>
     );
@@ -60,7 +63,9 @@ export const ChapterGroupedList = <TChapter, TItem>({
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
       {chapters.length === 0
-        ? emptyState
+        ? (emptyState ?? (
+            <EmptyStateText>{t('book.common.chapterGroupedList.noChapters')}</EmptyStateText>
+          ))
         : chapters.map((chapter) => {
             const chapterId = getChapterId(chapter);
             const chapterName = getChapterName(chapter);
@@ -68,7 +73,16 @@ export const ChapterGroupedList = <TChapter, TItem>({
 
             return (
               <Box key={chapterId} id={`chapter-${chapterId}`}>
-                <SectionTitle showDivider>{chapterName}</SectionTitle>
+                <SectionTitle
+                  showDivider
+                  sx={{
+                    mb: {
+                      xs: 1,
+                    },
+                  }}
+                >
+                  {chapterName}
+                </SectionTitle>
 
                 {items.length === 0 && renderEmptyChapter ? (
                   renderEmptyChapter()

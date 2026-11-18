@@ -99,6 +99,51 @@
             }
           }
         }
+      },
+      "post": {
+        "tags": [
+          "books"
+        ],
+        "summary": "Create Book From Epub",
+        "description": "Create a book from an uploaded EPUB and store the file, in one call.\n\nThe book gets the id the KOReader plugin computes, so the plugin's later sync\nlands on it; an EPUB whose book already has a file answers 409.",
+        "operationId": "create_book_from_epub",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_create_book_from_epub"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Book"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/books/recent": {
@@ -346,9 +391,9 @@
         "tags": [
           "ereader"
         ],
-        "summary": "Create Book",
-        "description": "Create or get a book by client_book_id.\n\nThis endpoint creates a new book if it doesn't exist, or returns the existing\nbook's metadata if it does. Used by KOReader to ensure a book exists before\nuploading highlights, covers, or EPUB files.\n\nArgs:\n    book_data: Book creation data (same format as highlight upload)\n    current_user: Authenticated user\n\nReturns:\n    EreaderBookMetadata with book_id, bookname, author, cover_file, has_epub",
-        "operationId": "create_book",
+        "summary": "Upload Book",
+        "description": "Create a book from its EPUB under the device's client_book_id, in one call.\n\nTitle, author and language come from the file. A book that already has its\nfile is left as it is, and its metadata is returned all the same.",
+        "operationId": "upload_book",
         "security": [
           {
             "OAuth2PasswordBearer": []
@@ -375,9 +420,9 @@
         "requestBody": {
           "required": true,
           "content": {
-            "application/json": {
+            "multipart/form-data": {
               "schema": {
-                "$ref": "#/components/schemas/BookCreate"
+                "$ref": "#/components/schemas/Body_upload_book"
               }
             }
           }
@@ -401,8 +446,8 @@
                   "detail": {
                     "code": "client_upgrade_required",
                     "client": "koreader-plugin",
-                    "min_supported_version": "0.12.0",
-                    "received_version": "0.12.0",
+                    "min_supported_version": "0.16.0",
+                    "received_version": "0.15.0",
                     "update_url": "https://github.com/Crossbill-App/koreader-plugin"
                   }
                 }
@@ -481,98 +526,8 @@
                   "detail": {
                     "code": "client_upgrade_required",
                     "client": "koreader-plugin",
-                    "min_supported_version": "0.12.0",
-                    "received_version": "0.12.0",
-                    "update_url": "https://github.com/Crossbill-App/koreader-plugin"
-                  }
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/ereader/books/{client_book_id}/epub": {
-      "post": {
-        "tags": [
-          "ereader"
-        ],
-        "summary": "Upload Book Epub",
-        "description": "Upload an ebook file (EPUB) for a book using client_book_id.\n\nThis endpoint accepts an uploaded ebook file and saves it for the book.\nUsed by KOReader which identifies books by client_book_id.\n\nArgs:\n    client_book_id: The client-provided stable book identifier\n    epub: Uploaded ebook file (EPUB)\n    current_user: Authenticated user\n\nReturns:\n    SuccessResponse with success status\n\nRaises:\n    HTTPException: 400 for invalid file, 404 if book is not found",
-        "operationId": "upload_book_epub",
-        "security": [
-          {
-            "OAuth2PasswordBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "client_book_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Client Book Id"
-            }
-          },
-          {
-            "name": "X-Crossbill-Client",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Crossbill-Client"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "multipart/form-data": {
-              "schema": {
-                "$ref": "#/components/schemas/Body_upload_book_epub"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SuccessResponse"
-                }
-              }
-            }
-          },
-          "426": {
-            "description": "The caller is an outdated Crossbill client, or sent no X-Crossbill-Client header at all. The body names the minimum supported version and where to get it.",
-            "content": {
-              "application/json": {
-                "example": {
-                  "detail": {
-                    "code": "client_upgrade_required",
-                    "client": "koreader-plugin",
-                    "min_supported_version": "0.12.0",
-                    "received_version": "0.12.0",
+                    "min_supported_version": "0.16.0",
+                    "received_version": "0.15.0",
                     "update_url": "https://github.com/Crossbill-App/koreader-plugin"
                   }
                 }
@@ -651,8 +606,8 @@
                   "detail": {
                     "code": "client_upgrade_required",
                     "client": "koreader-plugin",
-                    "min_supported_version": "0.12.0",
-                    "received_version": "0.12.0",
+                    "min_supported_version": "0.16.0",
+                    "received_version": "0.15.0",
                     "update_url": "https://github.com/Crossbill-App/koreader-plugin"
                   }
                 }
@@ -731,8 +686,8 @@
                   "detail": {
                     "code": "client_upgrade_required",
                     "client": "koreader-plugin",
-                    "min_supported_version": "0.12.0",
-                    "received_version": "0.12.0",
+                    "min_supported_version": "0.16.0",
+                    "received_version": "0.15.0",
                     "update_url": "https://github.com/Crossbill-App/koreader-plugin"
                   }
                 }
@@ -849,8 +804,8 @@
                   "detail": {
                     "code": "client_upgrade_required",
                     "client": "koreader-plugin",
-                    "min_supported_version": "0.12.0",
-                    "received_version": "0.12.0",
+                    "min_supported_version": "0.16.0",
+                    "received_version": "0.15.0",
                     "update_url": "https://github.com/Crossbill-App/koreader-plugin"
                   }
                 }
@@ -930,8 +885,8 @@
                   "detail": {
                     "code": "client_upgrade_required",
                     "client": "koreader-plugin",
-                    "min_supported_version": "0.12.0",
-                    "received_version": "0.12.0",
+                    "min_supported_version": "0.16.0",
+                    "received_version": "0.15.0",
                     "update_url": "https://github.com/Crossbill-App/koreader-plugin"
                   }
                 }
@@ -1009,6 +964,68 @@
             }
           }
         }
+      },
+      "post": {
+        "tags": [
+          "highlights"
+        ],
+        "summary": "Create Highlight",
+        "description": "Store a passage the reader selected in the browser.\n\nThe selection is converted to the canonical KOReader xpointers before anything\nis stored (ADR-0004 \u00a72) and refused with 422 if the book does not hold the\nselected text, or holds it in so many places that which one was meant cannot be\nsaid. What is stored is an ordinary highlight, so it reaches the e-reader\nthrough the sync that already exists and shows up in every view that renders\none.\n\nThe same passage marked twice is one highlight: a selection whose text the book\nalready holds answers **200** with the stored highlight instead of 201, and one\nthe reader had deleted comes back rather than being stored again. That stored\nhighlight may sit at another occurrence of the same words, so a reader that\nneeds to draw it should ask ``GET /highlights/{id}/locator`` where it is rather\nthan assume it is where this selection was.\n\nA selection may name a ``device_color`` in place of a label, and is then filed\nunder the book's style for that colour and drawer -- created if the book has\nnone yet -- the way the e-reader's own highlights are.",
+        "operationId": "create_highlight",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "book_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Book Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SelectionHighlightCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedHighlightResponse"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "The book already held this passage; the stored highlight is returned.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedHighlightResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The selected text is not in this book, or is in too many places."
+          },
+          "503": {
+            "description": "The book's stored file cannot be read, so nothing can be placed in it."
+          }
+        }
       }
     },
     "/api/v1/books/{book_id}/highlight": {
@@ -1052,6 +1069,73 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HighlightDeleteResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/books/{book_id}/highlights/{highlight_id}/color": {
+      "patch": {
+        "tags": [
+          "highlights"
+        ],
+        "summary": "Change Highlight Color",
+        "description": "Draw one highlight in another of KOReader's colours.\n\nOnly this highlight moves. The label naming a colour belongs to the style\nevery highlight of that colour in the book shares, so recolouring one of\nthem files it under another style rather than repainting the rest.\n\nReturns:\n    The label the highlight now resolves to, ready to draw it with.",
+        "operationId": "change_highlight_color",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "book_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Book Id"
+            }
+          },
+          {
+            "name": "highlight_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Highlight Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HighlightColorChange"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HighlightLabel"
                 }
               }
             }
@@ -1572,8 +1656,8 @@
                   "detail": {
                     "code": "client_upgrade_required",
                     "client": "koreader-plugin",
-                    "min_supported_version": "0.12.0",
-                    "received_version": "0.12.0",
+                    "min_supported_version": "0.16.0",
+                    "received_version": "0.15.0",
                     "update_url": "https://github.com/Crossbill-App/koreader-plugin"
                   }
                 }
@@ -1653,8 +1737,8 @@
                   "detail": {
                     "code": "client_upgrade_required",
                     "client": "koreader-plugin",
-                    "min_supported_version": "0.12.0",
-                    "received_version": "0.12.0",
+                    "min_supported_version": "0.16.0",
+                    "received_version": "0.15.0",
                     "update_url": "https://github.com/Crossbill-App/koreader-plugin"
                   }
                 }
@@ -4906,6 +4990,20 @@
         "title": "BackfillResponse",
         "description": "What a backfill request did.\n\n``total_jobs`` is the field to key on, because it is the only one present in\nboth outcomes: it is 0 exactly when nothing needed embedding, and then\n``batch`` is null because no batch was created and there is nothing to poll."
       },
+      "Body_create_book_from_epub": {
+        "properties": {
+          "epub": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "Epub"
+          }
+        },
+        "type": "object",
+        "required": [
+          "epub"
+        ],
+        "title": "Body_create_book_from_epub"
+      },
       "Body_login": {
         "properties": {
           "grant_type": {
@@ -4965,91 +5063,40 @@
         ],
         "title": "Body_login"
       },
-      "Body_upload_book_epub": {
+      "Body_upload_book": {
         "properties": {
           "epub": {
             "type": "string",
             "contentMediaType": "application/octet-stream",
             "title": "Epub"
-          }
-        },
-        "type": "object",
-        "required": [
-          "epub"
-        ],
-        "title": "Body_upload_book_epub"
-      },
-      "BookActivity": {
-        "properties": {
-          "unit": {
+          },
+          "client_book_id": {
             "type": "string",
-            "enum": [
-              "pages",
-              "minutes"
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Client Book Id"
+          },
+          "page_count": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
             ],
-            "title": "Unit",
-            "description": "What each day's value counts. Pages when every session of the book recorded them, minutes otherwise"
-          },
-          "range_start": {
-            "type": "string",
-            "format": "date",
-            "title": "Range Start",
-            "description": "First day of the window the grid spans"
-          },
-          "range_end": {
-            "type": "string",
-            "format": "date",
-            "title": "Range End",
-            "description": "Last day of the window the grid spans"
-          },
-          "days": {
-            "items": {
-              "$ref": "#/components/schemas/BookActivityDay"
-            },
-            "type": "array",
-            "title": "Days",
-            "description": "Days with reading, oldest first"
+            "title": "Page Count"
           }
         },
         "type": "object",
         "required": [
-          "unit",
-          "range_start",
-          "range_end",
-          "days"
+          "epub",
+          "client_book_id"
         ],
-        "title": "BookActivity",
-        "description": "A book's reading laid out day by day, for the activity grid.\n\nSparse on purpose: ``days`` carries only the days with something to show,\noldest first, and the window the grid spans is ``range_start`` to\n``range_end`` regardless. The client fills the gaps."
+        "title": "Body_upload_book"
       },
-      "BookActivityDay": {
-        "properties": {
-          "date": {
-            "type": "string",
-            "format": "date",
-            "title": "Date",
-            "description": "The calendar day, in the requested timezone"
-          },
-          "value": {
-            "type": "integer",
-            "title": "Value",
-            "description": "Pages read, or minutes read, per the grid's unit"
-          },
-          "level": {
-            "type": "integer",
-            "title": "Level",
-            "description": "Shade of the square, 1-4; days with nothing are omitted"
-          }
-        },
-        "type": "object",
-        "required": [
-          "date",
-          "value",
-          "level"
-        ],
-        "title": "BookActivityDay",
-        "description": "One coloured square of the reading-activity grid."
-      },
-      "BookCreate": {
+      "Book": {
         "properties": {
           "title": {
             "type": "string",
@@ -5122,21 +5169,123 @@
             "title": "Page Count",
             "description": "Total page count from ebook metadata"
           },
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
           "client_book_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Book Id"
+          },
+          "created_at": {
             "type": "string",
-            "maxLength": 255,
-            "minLength": 1,
-            "title": "Client Book Id",
-            "description": "Client-provided stable book identifier for deduplication"
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "last_viewed": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Viewed"
           }
         },
         "type": "object",
         "required": [
           "title",
-          "client_book_id"
+          "id",
+          "created_at",
+          "updated_at"
         ],
-        "title": "BookCreate",
-        "description": "Schema for creating a Book."
+        "title": "Book",
+        "description": "Schema for Book response."
+      },
+      "BookActivity": {
+        "properties": {
+          "unit": {
+            "type": "string",
+            "enum": [
+              "pages",
+              "minutes"
+            ],
+            "title": "Unit",
+            "description": "What each day's value counts. Pages when every session of the book recorded them, minutes otherwise"
+          },
+          "range_start": {
+            "type": "string",
+            "format": "date",
+            "title": "Range Start",
+            "description": "First day of the window the grid spans"
+          },
+          "range_end": {
+            "type": "string",
+            "format": "date",
+            "title": "Range End",
+            "description": "Last day of the window the grid spans"
+          },
+          "days": {
+            "items": {
+              "$ref": "#/components/schemas/BookActivityDay"
+            },
+            "type": "array",
+            "title": "Days",
+            "description": "Days with reading, oldest first"
+          }
+        },
+        "type": "object",
+        "required": [
+          "unit",
+          "range_start",
+          "range_end",
+          "days"
+        ],
+        "title": "BookActivity",
+        "description": "A book's reading laid out day by day, for the activity grid.\n\nSparse on purpose: ``days`` carries only the days with something to show,\noldest first, and the window the grid spans is ``range_start`` to\n``range_end`` regardless. The client fills the gaps."
+      },
+      "BookActivityDay": {
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date",
+            "title": "Date",
+            "description": "The calendar day, in the requested timezone"
+          },
+          "value": {
+            "type": "integer",
+            "title": "Value",
+            "description": "Pages read, or minutes read, per the grid's unit"
+          },
+          "level": {
+            "type": "integer",
+            "title": "Level",
+            "description": "Shade of the square, 1-4; days with nothing are omitted"
+          }
+        },
+        "type": "object",
+        "required": [
+          "date",
+          "value",
+          "level"
+        ],
+        "title": "BookActivityDay",
+        "description": "One coloured square of the reading-activity grid."
       },
       "BookDetails": {
         "properties": {
@@ -6487,6 +6636,97 @@
         ],
         "title": "CreateChatSessionResponse"
       },
+      "CreatedHighlightResponse": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id",
+            "description": "The highlight, for drawing it and for editing it later"
+          },
+          "book_id": {
+            "type": "integer",
+            "title": "Book Id"
+          },
+          "chapter_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chapter Id",
+            "description": "The chapter whose range holds it, if the book's chapters are placed"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text",
+            "description": "The selected text, as it is stored"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "highlight_style_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Highlight Style Id"
+          },
+          "start_xpoint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Xpoint",
+            "description": "Where the passage starts, in the format both readers agree on. Null only for a highlight stored before an e-reader sent its coordinates."
+          },
+          "end_xpoint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Xpoint",
+            "description": "Where it ends, on the same terms"
+          },
+          "datetime": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Datetime",
+            "description": "When the highlight was made, as a wall clock with no offset -- the same convention an e-reader's own timestamp arrives in."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "book_id",
+          "text",
+          "datetime"
+        ],
+        "title": "CreatedHighlightResponse",
+        "description": "The highlight that is now stored for the selected passage."
+      },
       "DigestAnswerUpdate": {
         "properties": {
           "question_index": {
@@ -7407,6 +7647,37 @@
         ],
         "title": "Highlight",
         "description": "Schema for Highlight response with flashcards."
+      },
+      "HighlightColorChange": {
+        "properties": {
+          "device_color": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 1,
+            "title": "Device Color",
+            "description": "A KOReader colour name, such as `yellow`"
+          },
+          "device_style": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Style",
+            "description": "The drawer that colour is drawn with, defaulting to KOReader's `lighten`"
+          }
+        },
+        "type": "object",
+        "required": [
+          "device_color"
+        ],
+        "title": "HighlightColorChange",
+        "description": "Which highlighter one highlight should be drawn with from now on.\n\nA colour rather than a style id: the nine colours are what a reader picks\nfrom, and the book's style for the one they picked is created on the spot\nwhen the book has none, the way making a highlight in it would."
       },
       "HighlightCreate": {
         "properties": {
@@ -9904,6 +10175,79 @@
         ],
         "title": "SearchBookRef",
         "description": "A book a search result belongs to."
+      },
+      "SelectionHighlightCreate": {
+        "properties": {
+          "locator": {
+            "$ref": "#/components/schemas/BrowserLocatorSchema",
+            "description": "What the reader selected. Unlike the reading position's locator this one must quote its `text.highlight`: that is the selected text, and it is both what gets anchored in the book and what gets stored as the highlight."
+          },
+          "datetime": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Datetime",
+            "description": "When the reader made the highlight, on the browser's clock and with its UTC offset. Stored as that local wall clock without the offset, the convention an e-reader's own timestamp arrives in."
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note",
+            "description": "What the reader wrote about the passage. Stored as the highlight's device-side note, which is the one an e-reader shows and edits."
+          },
+          "highlight_style_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Highlight Style Id",
+            "description": "The label to file this highlight under -- one of the book's own, as `GET /books/{book_id}/highlight-labels` lists them."
+          },
+          "device_color": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Color",
+            "description": "A KOReader colour name, such as `yellow`. A highlight in this colour is filed under the book's style for that colour and drawer, created if the book has none yet, the way the e-reader's own highlights are."
+          },
+          "device_style": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Style",
+            "description": "The drawer the colour is drawn with. Sent alongside `device_color`, and defaults to KOReader's `lighten` when it is omitted."
+          }
+        },
+        "type": "object",
+        "required": [
+          "locator",
+          "datetime"
+        ],
+        "title": "SelectionHighlightCreate",
+        "description": "What the reader sends when they have highlighted a passage.\n\nNamed for the selection rather than for the highlight because the KOReader\nsync's own upload item is already ``HighlightCreate``, and two schemas of\nthat name would leave every generated client calling both by their full\nmodule paths."
       },
       "SendChatMessageRequest": {
         "properties": {

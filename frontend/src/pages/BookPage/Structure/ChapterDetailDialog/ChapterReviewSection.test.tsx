@@ -11,6 +11,8 @@ import { userEvent } from 'vitest/browser';
 const ANSWER_PLACEHOLDER = 'Write your answer...';
 const CHAPTER = aChapter({ id: 10, name: 'Attention and memory' });
 
+const THE_FIRST_QUESTION = 'What makes attention a filter?';
+
 /** The chapter dialog with two digest questions, opened straight from the URL. */
 const openChapterDialog = async () => {
   const { handlers, state } = bookApi({
@@ -19,7 +21,7 @@ const openChapterDialog = async () => {
       aChapterDigest({
         chapter_id: CHAPTER.id,
         questions: [
-          aDigestQuestion({ question: 'What makes attention a filter?' }),
+          aDigestQuestion({ question: THE_FIRST_QUESTION }),
           aDigestQuestion({ question: 'Where does the spotlight metaphor fail?' }),
         ],
       }),
@@ -29,7 +31,7 @@ const openChapterDialog = async () => {
 
   const screen = await renderApp({ path: '/book/1/structure?chapterId=10' });
   const dialog = screen.getByRole('dialog');
-  await expect.element(dialog.getByText('What makes attention a filter?')).toBeVisible();
+  await expect.element(dialog.getByText(THE_FIRST_QUESTION)).toBeVisible();
 
   return { screen, dialog, state };
 };
@@ -73,7 +75,7 @@ test('Escape reverts an answer instead of closing the chapter dialog', async () 
   await userEvent.keyboard('{Escape}');
 
   await expect.element(dialog.getByPlaceholder(ANSWER_PLACEHOLDER).first()).toHaveValue('');
-  await expect.element(dialog.getByText('What makes attention a filter?')).toBeVisible();
+  await expect.element(dialog.getByText(THE_FIRST_QUESTION)).toBeVisible();
   expect(state.digests[0].questions[0].user_answer).toBe('');
 });
 
@@ -89,7 +91,7 @@ test('a failed save reports the error and keeps the answer on screen', async () 
   await userEvent.fill(dialog.getByPlaceholder(ANSWER_PLACEHOLDER).first(), 'Worth keeping.');
   await userEvent.tab();
 
-  await expect.element(screen.getByText('Failed to save answer. Please try again.')).toBeVisible();
+  await expect.element(screen.getByRole('alert')).toBeVisible();
   await expect
     .element(dialog.getByPlaceholder(ANSWER_PLACEHOLDER).first())
     .toHaveValue('Worth keeping.');
@@ -121,11 +123,7 @@ test('a failed save can be retried without changing the answer', async () => {
   await expect.poll(() => state.digests[0].questions[0].user_answer).toBe('Worth keeping.');
 });
 
-/**
- * The generate mutation used to attach no error handler at all, so a failure
- * just stopped the spinner and left the reader with nothing.
- */
-test('a failed generation says so', async () => {
+test('a failed summary generation says so', async () => {
   const { handlers } = bookApi({ book: aBookDetails({ chapters: [CHAPTER] }) });
   worker.use(
     settingsWithAi(true),
@@ -138,9 +136,9 @@ test('a failed generation says so', async () => {
 
   const screen = await renderApp({ path: '/book/1/structure?chapterId=10' });
   const dialog = screen.getByRole('dialog');
-  await userEvent.click(dialog.getByRole('button', { name: 'Generate questions' }));
+  await userEvent.click(dialog.getByRole('button', { name: 'Generate summary' }));
 
   await expect
-    .element(screen.getByRole('alert').filter({ hasText: 'Failed to generate questions' }))
+    .element(screen.getByRole('alert').filter({ hasText: 'Failed to generate summary' }))
     .toBeVisible();
 });

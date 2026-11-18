@@ -1,8 +1,10 @@
 import { Collapsable } from '@/components/animations/Collapsable';
+import { Eyebrow } from '@/components/typography/Eyebrow.tsx';
 import { HighlightsIcon } from '@/theme/Icons';
 import { ICON_SIZE } from '@/theme/iconSizes.ts';
 import { Box, ButtonBase, styled, Typography } from '@mui/material';
 import { ReactNode, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 export interface FlashcardCardProps {
   question: string;
@@ -10,27 +12,23 @@ export interface FlashcardCardProps {
   showSourceHighlight?: boolean;
   sourceHighlightText?: string;
   renderActions: () => ReactNode;
-  borderStyle?: 'solid' | 'dashed';
-  borderColor?: 'primary' | 'grey';
 }
 
-const FlashcardStyled = styled(Box, {
-  shouldForwardProp: (prop) => prop !== 'borderStyle' && prop !== 'borderColor',
-})<{ borderStyle?: 'solid' | 'dashed'; borderColor?: 'primary' | 'grey' }>(
-  ({ theme, borderStyle = 'solid', borderColor = 'primary' }) => ({
-    borderLeft: `3px ${borderStyle} ${borderColor === 'grey' ? theme.palette.divider : theme.palette.primary.main}`,
-    paddingLeft: theme.spacing(2),
-    paddingTop: theme.spacing(1),
-    paddingBottom: theme.spacing(1),
-    transition: 'all 0.2s ease',
-    '@media (hover: hover)': {
-      '&:hover': {
-        backgroundColor: theme.palette.action.hover,
-        boxShadow: theme.shadows[2],
-      },
+/** The highlight card's shell, minus the action area: the question and the actions are separate buttons. */
+const FlashcardStyled = styled(Box)(({ theme }) => ({
+  borderRadius: theme.spacing(0.75),
+  paddingLeft: theme.spacing(2.5),
+  paddingRight: theme.spacing(1),
+  paddingTop: theme.spacing(1),
+  paddingBottom: theme.spacing(1),
+  transition: 'all 0.2s ease',
+  '@media (hover: hover)': {
+    '&:hover': {
+      backgroundColor: theme.palette.action.hover,
+      boxShadow: theme.shadows[2],
     },
-  })
-);
+  },
+}));
 
 /**
  * In the flow beside the question rather than floating over it: the cluster is
@@ -58,13 +56,12 @@ export const FlashcardCard = ({
   showSourceHighlight,
   sourceHighlightText,
   renderActions,
-  borderStyle = 'solid',
-  borderColor = 'primary',
 }: FlashcardCardProps) => {
+  const { t } = useTranslation();
   const [isExpanded, setIsExpanded] = useState(false);
 
   return (
-    <FlashcardStyled borderStyle={borderStyle} borderColor={borderColor}>
+    <FlashcardStyled>
       <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 0.5 }}>
         <ButtonBase
           onClick={() => setIsExpanded(!isExpanded)}
@@ -85,19 +82,7 @@ export const FlashcardCard = ({
 
       <Collapsable isExpanded={isExpanded}>
         <Box sx={{ mt: 1.5 }}>
-          <Typography
-            variant="caption"
-            sx={{
-              color: 'text.secondary',
-              fontWeight: 600,
-              textTransform: 'uppercase',
-              letterSpacing: '0.05em',
-              display: 'block',
-              mb: 0.5,
-            }}
-          >
-            Answer
-          </Typography>
+          <Eyebrow sx={{ mb: 0.5 }}>{t('flashcards.fields.answer')}</Eyebrow>
 
           <Typography variant="body1" sx={{ color: 'text.secondary', lineHeight: 1.5 }}>
             {answer}

@@ -65,12 +65,12 @@ const Footer = ({ highlight, bookmark, noteCount }: FooterProps) => {
                 sx={{ fontSize: ICON_SIZE.inline, verticalAlign: 'middle', ml: 1, mt: -0.5 }}
               />
             ),
-            !!noteCount && <CountWithIcon icon={NotesIcon} count={noteCount} noun="note" />,
+            !!noteCount && <CountWithIcon icon={NotesIcon} count={noteCount} unit="notes" />,
             !!highlight.flashcards.length && (
               <CountWithIcon
                 icon={FlashcardsIcon}
                 count={highlight.flashcards.length}
-                noun="flashcard"
+                unit="flashcards"
               />
             ),
           ]}
@@ -86,12 +86,6 @@ const Footer = ({ highlight, bookmark, noteCount }: FooterProps) => {
 
 /**
  * One highlight in a list, opening the highlight dialog when clicked.
- *
- * Memoised because the highlights tab renders its whole set at once
- * (ADR-0003), so a book's worth of these re-render on every filter keystroke,
- * sort toggle and dialog open. That only pays off while all four props stay
- * referentially stable — `onOpenModal` in particular must be a `useCallback`,
- * never an inline arrow, or the memo silently does nothing.
  */
 export const HighlightCard = memo(function HighlightCard({
   highlight,
@@ -110,12 +104,12 @@ export const HighlightCard = memo(function HighlightCard({
       id={`highlight-${highlight.id}`}
       onClick={handleOpenModal}
       sx={{
-        py: 3.5,
-        px: 2.5,
+        py: 1,
+        pl: 2.5,
       }}
     >
       <Box sx={{ flex: 1, minWidth: 0 }}>
-        <Box sx={{ display: 'flex', alignItems: 'start', gap: 1.5, mb: 2 }}>
+        <Box sx={{ display: 'flex', alignItems: 'start', gap: 1.5 }}>
           <HighlightsIcon
             sx={{
               fontSize: ICON_SIZE.prominent,

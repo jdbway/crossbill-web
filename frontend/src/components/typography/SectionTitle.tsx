@@ -1,12 +1,16 @@
-import { Box, Typography } from '@mui/material';
+import { Box, SxProps, Typography } from '@mui/material';
+import { Theme } from '@mui/material/styles';
 
 export interface SectionTitleProps {
   children: React.ReactNode;
+  /** Set where a landmark takes its accessible name from this heading. */
+  id?: string;
   component?: 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6';
   /** The variant with the gradient rule running off to the right. */
   showDivider?: boolean;
   /** Off for headings whose own container owns the spacing. */
   gutterBottom?: boolean;
+  sx?: SxProps<Theme> | undefined;
 }
 
 /**
@@ -17,12 +21,15 @@ export interface SectionTitleProps {
  */
 export const SectionTitle = ({
   children,
+  id,
   component = 'h2',
   showDivider = false,
   gutterBottom = true,
+  sx,
 }: SectionTitleProps) => {
   const heading = (
     <Typography
+      id={id}
       variant="sectionTitle"
       component={component}
       gutterBottom={gutterBottom && !showDivider}
@@ -36,7 +43,7 @@ export const SectionTitle = ({
   }
 
   return (
-    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2.5, px: 0.5 }}>
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2.5, px: 0.5, ...sx }}>
       {heading}
       <Box
         sx={(theme) => ({

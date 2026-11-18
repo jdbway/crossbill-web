@@ -1,13 +1,15 @@
 import { TagGroupInBook } from '@/api/generated/model';
 import { CollapseChevron } from '@/components/CollapseChevron.tsx';
 import { SavedIndicator } from '@/components/SavedIndicator.tsx';
+import { Eyebrow } from '@/components/typography/Eyebrow.tsx';
 import { useCommitOnBlur } from '@/hooks/useCommitOnBlur.ts';
 import type { SaveStatus } from '@/hooks/useSaveStatus.ts';
 import { DeleteIcon, EditIcon, EditTagsIcon } from '@/theme/Icons.tsx';
 import { ICON_SIZE } from '@/theme/iconSizes.ts';
 import { createAdaptiveHoverStyles } from '@/utils/adaptiveHover.ts';
-import { Box, ButtonBase, IconButton, TextField, Tooltip, Typography } from '@mui/material';
+import { Box, ButtonBase, IconButton, TextField, Tooltip } from '@mui/material';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 interface TagGroupTitleProps {
   title: string;
@@ -49,29 +51,16 @@ export const TagGroupTitle = ({
         isExpanded={isExpanded}
         sx={{ fontSize: ICON_SIZE.inline, color: 'text.secondary' }}
       />
-      <Typography
-        variant="subtitle2"
-        sx={{
-          fontSize: '0.75rem',
-          fontWeight: 600,
-          color: 'text.secondary',
-          textTransform: 'uppercase',
-          letterSpacing: '0.5px',
-        }}
-      >
+      <Eyebrow>
         {title}
-        <Typography
+        {/* Not part of the name, so it drops the caps tracking the name wears. */}
+        <Box
           component="span"
-          sx={{
-            fontSize: '0.7rem',
-            fontWeight: 400,
-            color: 'text.disabled',
-            ml: 0.5,
-          }}
+          sx={{ fontWeight: 400, letterSpacing: 'normal', color: 'text.disabled', ml: 0.5 }}
         >
           ({count})
-        </Typography>
-      </Typography>
+        </Box>
+      </Eyebrow>
     </ButtonBase>
   );
 };
@@ -90,6 +79,7 @@ const TagGroupNameEditForm = ({
   onSubmit,
   onClose,
 }: TagGroupNameEditFormProps) => {
+  const { t } = useTranslation();
   // Clicking away blurs the input, which is what saves the name — the shared
   // hook also keeps that from renaming twice when the field is left again
   // while the first rename is still in flight.
@@ -106,6 +96,9 @@ const TagGroupNameEditForm = ({
       size="small"
       autoFocus
       disabled={isProcessing}
+      // The field replaces the group's title in place, so it has no visible
+      // label of its own to be named by.
+      slotProps={{ htmlInput: { 'aria-label': t('book.navigation.tags.groupHeader.groupName') } }}
       sx={{ flex: 1, mr: 1 }}
     />
   );
@@ -138,6 +131,7 @@ export const TagGroupHeader = ({
   saveStatus,
   controlsId,
 }: TagGroupHeaderProps) => {
+  const { t } = useTranslation();
   const [isEditing, setIsEditing] = useState(false);
 
   const adaptiveStyles = createAdaptiveHoverStyles({
@@ -186,11 +180,11 @@ export const TagGroupHeader = ({
               gap: 0.5,
             }}
           >
-            <Tooltip title="Edit tags">
+            <Tooltip title={t('book.navigation.tags.groupHeader.editTags')}>
               <span>
                 <IconButton
                   size="small"
-                  aria-label="Edit tags"
+                  aria-label={t('book.navigation.tags.groupHeader.editTags')}
                   onClick={(e) => {
                     e.stopPropagation();
                     onEditTags();
@@ -201,11 +195,11 @@ export const TagGroupHeader = ({
                 </IconButton>
               </span>
             </Tooltip>
-            <Tooltip title="Rename group">
+            <Tooltip title={t('book.navigation.tags.groupHeader.renameGroup')}>
               <span>
                 <IconButton
                   size="small"
-                  aria-label="Rename group"
+                  aria-label={t('book.navigation.tags.groupHeader.renameGroup')}
                   onClick={(e) => {
                     e.stopPropagation();
                     setIsEditing(true);
@@ -216,11 +210,11 @@ export const TagGroupHeader = ({
                 </IconButton>
               </span>
             </Tooltip>
-            <Tooltip title="Delete group">
+            <Tooltip title={t('book.navigation.tags.groupHeader.deleteGroup')}>
               <span>
                 <IconButton
                   size="small"
-                  aria-label="Delete group"
+                  aria-label={t('book.navigation.tags.groupHeader.deleteGroup')}
                   onClick={(e) => {
                     e.stopPropagation();
                     onDelete();

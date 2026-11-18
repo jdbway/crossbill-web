@@ -1,4 +1,5 @@
 import type {
+  HighlightLocatorResponse,
   PositionList,
   ResumePositionResponse,
   WebPublicationManifest,
@@ -6,6 +7,17 @@ import type {
 
 const manifestHref = (bookId = 1) =>
   `${window.location.origin}/api/v1/readium/books/${bookId}/manifest.json`;
+
+/** The manifest's contents, with an unlinked `#` part heading among the chapters. */
+export const aTableOfContents = (): WebPublicationManifest['toc'] => [
+  { href: 'resources/OEBPS/chapter1.xhtml', title: 'On Attention' },
+  {
+    // A part heading links nowhere; its chapters do.
+    href: '#',
+    title: 'Part two',
+    children: [{ href: 'resources/OEBPS/chapter2.xhtml', title: 'On Memory' }],
+  },
+];
 
 /**
  * A small but genuine Readium Web Publication Manifest.
@@ -35,15 +47,7 @@ export const aManifest = (
     { href: 'resources/OEBPS/chapter2.xhtml', type: 'application/xhtml+xml' },
   ],
   resources: [{ href: 'resources/OEBPS/style.css', type: 'text/css' }],
-  toc: [
-    { href: 'resources/OEBPS/chapter1.xhtml', title: 'On Attention' },
-    {
-      // A part heading links nowhere; its chapters do.
-      href: '#',
-      title: 'Part two',
-      children: [{ href: 'resources/OEBPS/chapter2.xhtml', title: 'On Memory' }],
-    },
-  ],
+  toc: aTableOfContents(),
   ...overrides,
 });
 
@@ -119,4 +123,36 @@ export const aDetailedPositionList = (): PositionList => ({
       },
     })),
   ],
+});
+
+/** A highlight the server placed over the quoted words of chapter one's paragraph. */
+export const aHighlightLocator = (highlightId: number): HighlightLocatorResponse => ({
+  highlight_id: highlightId,
+  locator: {
+    href: 'resources/OEBPS/chapter1.xhtml',
+    type: 'application/xhtml+xml',
+    locations: { progression: 0, cssSelector: 'p' },
+    text: { highlight: 'rarest and purest' },
+  },
+});
+
+/** Which of chapter two's 240 identical paragraphs `aPassage` is in. */
+export const PASSAGE_SELECTOR = 'body > p:nth-of-type(200)';
+
+/** A highlight deep in chapter two, placed as the server places one: a selector and a quote, no position. */
+export const aPassage = (highlightId: number): HighlightLocatorResponse => ({
+  highlight_id: highlightId,
+  locator: {
+    href: 'resources/OEBPS/chapter2.xhtml',
+    type: 'application/xhtml+xml',
+    locations: { progression: 0.83, cssSelector: PASSAGE_SELECTOR },
+    text: { highlight: 'rarest and purest' },
+  },
+});
+
+/** A highlight the server could not find anywhere in the EPUB. */
+export const anUnplacedHighlight = (highlightId: number): HighlightLocatorResponse => ({
+  highlight_id: highlightId,
+  locator: null,
+  unavailable: 'unresolved',
 });

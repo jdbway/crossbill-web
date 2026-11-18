@@ -132,8 +132,27 @@ export const useCacheEvents = () => {
        */
       refreshRequested: () => queryClient.invalidateQueries(),
 
+      /**
+       * A highlight was made. The promise settles once the book's details have refetched.
+       *
+       * Its labels too: a highlight in a colour the book had no style for makes one.
+       */
+      highlightCreated: (bookId: number) => {
+        invalidate(getGetBookHighlightLabelsQueryKey(bookId));
+        return queryClient.invalidateQueries({ queryKey: getGetBookDetailsQueryKey(bookId) });
+      },
+
       /** A highlight label was renamed or recoloured. Book details embeds labels. */
       highlightLabelsChanged: (bookId: number) =>
+        invalidate(getGetBookDetailsQueryKey(bookId), getGetBookHighlightLabelsQueryKey(bookId)),
+
+      /**
+       * One highlight was filed under another colour.
+       *
+       * The labels too, not only the highlight: the colour it moved to may be
+       * one the book had no style for, and both colours' counts have changed.
+       */
+      highlightColorChanged: (bookId: number) =>
         invalidate(getGetBookDetailsQueryKey(bookId), getGetBookHighlightLabelsQueryKey(bookId)),
     };
   }, [queryClient]);

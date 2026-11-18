@@ -1,8 +1,11 @@
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.common.value_objects.ids import BookId, UserId
 from src.domain.library.entities.book import Book
+from src.domain.library.exceptions import BookAlreadyExistsError
+from src.infrastructure.common.sql import commit_or_rollback
 from src.infrastructure.library.mappers.book_mapper import BookMapper
 from src.infrastructure.library.orm.book_model import Book as BookORM
 
@@ -48,13 +51,27 @@ class BookRepository:
 
         return self.mapper.to_domain(orm_model)
 
+    async def find_all_with_ebook_file(self) -> list[Book]:
+        """List every book with a stored EPUB, in id order, across all users.
+
+        The one listing here that no user owns: it exists for the one-off
+        Readium backfill, which fills a backlog on behalf of everybody.
+        """
+        stmt = select(BookORM).where(BookORM.ebook_file.is_not(None)).order_by(BookORM.id)
+        result = await self.db.execute(stmt)
+        return [self.mapper.to_domain(orm_model) for orm_model in result.scalars()]
+
     async def save(self, book: Book) -> Book:
         """Persist book to database."""
         if book.id.value == 0:
-            # Create new
             orm_model = self.mapper.to_orm(book)
             self.db.add(orm_model)
-            await self.db.commit()
+            try:
+                await commit_or_rollback(self.db)
+            except IntegrityError as e:
+                if book.client_book_id and "client_book_id" in str(e.orig):
+                    raise BookAlreadyExistsError(book.client_book_id) from e
+                raise
             await self.db.refresh(orm_model)
             return self.mapper.to_domain(orm_model)
         # Update existing
@@ -62,7 +79,7 @@ class BookRepository:
         result = await self.db.execute(stmt)
         existing_orm = result.scalar_one()
         self.mapper.to_orm(book, existing_orm)
-        await self.db.commit()
+        await commit_or_rollback(self.db)
         await self.db.refresh(existing_orm)
         return self.mapper.to_domain(existing_orm)
 

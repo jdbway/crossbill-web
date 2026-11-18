@@ -3,6 +3,12 @@ from dependency_injector import containers, providers
 from src.application.web_reader.commands.backfill_book_locators_use_case import (
     BackfillBookLocatorsUseCase,
 )
+from src.application.web_reader.commands.backfill_readium_rows_use_case import (
+    BackfillReadiumRowsUseCase,
+)
+from src.application.web_reader.commands.create_highlight_from_locator_use_case import (
+    CreateHighlightFromLocatorUseCase,
+)
 from src.application.web_reader.commands.save_reading_position_use_case import (
     SaveReadingPositionUseCase,
 )
@@ -44,16 +50,42 @@ class WebReaderContainer(containers.DeclarativeContainer):
     position_anchor_service = providers.Dependency()
     web_reading_position_repository = providers.Dependency()
     position_index_service = providers.Dependency()
+    chapter_repository = providers.Dependency()
+    highlight_style_repository = providers.Dependency()
+    chapter_position_resolver = providers.Dependency()
+    embedding_enqueuer = providers.Dependency()
 
-    # Ingest rather than a read: driven by the library module's EPUB upload, and by #841's worker
+    # Ingest rather than a read: driven by the library module's EPUB upload and by #841's backfill
     backfill_book_locators_use_case = providers.Factory(
         BackfillBookLocatorsUseCase,
         highlight_repository=highlight_repository,
         session_repository=reading_session_repository,
         position_anchor_service=position_anchor_service,
     )
+    # No request reaches this one: migration 076 runs it through its own
+    # composition root. Declared here so the composition is stated in one place.
+    backfill_readium_rows_use_case = providers.Factory(
+        BackfillReadiumRowsUseCase,
+        book_repository=book_repository,
+        file_repository=file_repository,
+        publication_parser=publication_parser,
+        publication_repository=publication_repository,
+        backfill_book_locators_use_case=backfill_book_locators_use_case,
+    )
 
     # Commands
+    create_highlight_from_locator_use_case = providers.Factory(
+        CreateHighlightFromLocatorUseCase,
+        book_repository=book_repository,
+        highlight_repository=highlight_repository,
+        chapter_repository=chapter_repository,
+        highlight_style_repository=highlight_style_repository,
+        position_anchor_service=position_anchor_service,
+        file_repository=file_repository,
+        position_index_service=position_index_service,
+        chapter_position_resolver=chapter_position_resolver,
+        embedding_enqueuer=embedding_enqueuer,
+    )
     save_reading_position_use_case = providers.Factory(
         SaveReadingPositionUseCase,
         book_repository=book_repository,

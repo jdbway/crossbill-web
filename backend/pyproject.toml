@@ -1,13 +1,13 @@
 [project]
 name = "crossbill-backend"
-version = "0.29.0"
+version = "0.33.2"
 description = "crossbill backend - KOReader highlights sync server"
 authors = [{ name = "User", email = "user@example.com" }]
 readme = "README.md"
 requires-python = ">=3.12,<4.0"
 dependencies = [
-  "fastapi>=0.139.0,<0.142.0",
-  "uvicorn[standard]>=0.44.0,<0.53.0",
+  "fastapi>=0.139.0,<0.163.0",
+  "uvicorn[standard]>=0.44.0,<0.55.0",
   "sqlalchemy[asyncio]>=2.0.44,<3.0.0",
   "alembic>=1.17.1,<2.0.0",
   "psycopg[binary]>=3.2.12,<4.0.0",
@@ -90,6 +90,7 @@ select = [
   "ICN",   # flake8-import-conventions
   "PIE",   # flake8-pie
   "PT",    # flake8-pytest-style
+  "TID251", # flake8-tidy-imports banned-api
   "Q",     # flake8-quotes
   "RSE",   # flake8-raise
   "RET",   # flake8-return
@@ -112,6 +113,9 @@ ignore = [
   "UP047",   # Generic function should use type parameters
 ]
 
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"unittest.mock".msg = "Mocks are allowed only in tests/unit/infrastructure/. Use an API test, a hand-written fake or monkeypatch instead (see the writing-tests skill)."
+
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = [
   "S101",     # Use of assert in tests
@@ -125,6 +129,9 @@ ignore = [
 "tests/test_epub_toc_chapters.py" = [
   "ANN001", # Missing type annotation for function argument
   "ANN201", # Missing return type annotation for public function
+]
+"tests/unit/infrastructure/**/*.py" = [
+  "TID251", # external clients (S3, SAQ) are mocked at this tier by design
 ]
 "src/**/routers/*.py" = [
   "B008", # FastAPI Depends() in argument defaults is intentional
@@ -240,4 +247,4 @@ timeout_multiplier = 3.0
 # Readium locators (ADR-0004). It is not on PyPI, so it is pinned to a release
 # tag here; bumping it is a deliberate two-repo change, never a range.
 [tool.uv.sources]
-xpoint-cfi = { git = "https://github.com/Crossbill-App/xpoint-cfi.git", tag = "v0.1.0" }
+xpoint-cfi = { git = "https://github.com/Crossbill-App/xpoint-cfi.git", tag = "v0.1.1" }

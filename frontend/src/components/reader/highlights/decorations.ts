@@ -1,0 +1,63 @@
+import type { Highlight, HighlightLocatorResponse } from '@/api/generated/model';
+import { fromLocatorSchema } from '@/components/reader/api/apiLocators.ts';
+import type { EbookDecoration, EbookLocation } from '@/components/reader/engine/EbookReader.ts';
+import { DEFAULT_LABEL_COLOR, hexTint } from '@/utils/colorUtils.ts';
+
+// The label palette is saturated enough to carry a chip, and at full strength
+// over a paragraph it is a wall rather than a highlight.
+const TINT_OPACITY = 0.35;
+
+const decorationId = (highlightId: number) => `highlight-${highlightId}`;
+
+const HIGHLIGHT_DECORATION_ID = /^highlight-(\d+)$/;
+
+/** The highlight a drawn decoration stands for, or `null` for one that stands for none. */
+export const highlightIdFrom = (decorationId: string): number | null => {
+  const match = HIGHLIGHT_DECORATION_ID.exec(decorationId);
+  return match ? Number(match[1]) : null;
+};
+
+/** A passage drawn as a highlight while the server is still storing it. */
+export const standInDecoration = (
+  sequence: number,
+  location: EbookLocation,
+  tint: string
+): EbookDecoration => ({
+  id: `selection-${sequence}`,
+  location,
+  tint,
+  opacity: TINT_OPACITY,
+});
+
+/** A passage the engine holds on to, drawn because the browser has stopped showing it selected. */
+export const heldPassageDecoration = (location: EbookLocation): EbookDecoration => ({
+  id: 'held-passage',
+  location,
+  tint: DEFAULT_LABEL_COLOR,
+  opacity: TINT_OPACITY,
+});
+
+const tintFor = (highlight: Highlight): string =>
+  hexTint(highlight.label?.ui_color, DEFAULT_LABEL_COLOR);
+
+/** One book's highlights as the reader draws them: those the server placed, in their labels' colours. */
+export const highlightDecorations = (
+  locators: HighlightLocatorResponse[],
+  highlights: Highlight[]
+): EbookDecoration[] => {
+  const byId = new Map(highlights.map((highlight) => [highlight.id, highlight]));
+  return locators.flatMap(({ highlight_id, locator }) => {
+    const highlight = byId.get(highlight_id);
+    // No locator: the server could not place it, and a guess would mark the wrong words.
+    // No highlight: deleted after the locators were fetched, which are never fetched again.
+    if (!locator || !highlight) return [];
+    return [
+      {
+        id: decorationId(highlight_id),
+        location: fromLocatorSchema(locator),
+        tint: tintFor(highlight),
+        opacity: TINT_OPACITY,
+      },
+    ];
+  });
+};

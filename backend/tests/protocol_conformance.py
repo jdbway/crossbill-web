@@ -16,6 +16,7 @@ from src.application.identity.protocols.refresh_token_repository import (
 from src.application.identity.protocols.token_service import TokenServiceProtocol
 from src.application.identity.protocols.user_repository import UserRepositoryProtocol
 from src.application.jobs.protocols.job_batch_repository import JobBatchRepositoryProtocol
+from src.application.jobs.protocols.job_queue_service import JobQueueServiceProtocol
 from src.application.jobs.queries.job_batch import JobBatchQueryProtocol
 from src.application.learning.protocols.ai_chat_service import AIChatServiceProtocol
 from src.application.learning.protocols.ai_chat_session_repository import (
@@ -29,6 +30,8 @@ from src.application.library.protocols.book_repository import (
     BookRepositoryProtocol as LibraryBookRepositoryProtocol,
 )
 from src.application.library.protocols.chapter_repository import ChapterRepositoryProtocol
+from src.application.library.protocols.epub_parser import EpubParserProtocol
+from src.application.library.protocols.file_repository import FileRepositoryProtocol
 from src.application.library.queries.book_details import BookDetailsQueryProtocol
 from src.application.library.queries.book_list import BookListQueryProtocol
 from src.application.notes.protocols.note_repository import NoteRepositoryProtocol
@@ -40,6 +43,9 @@ from src.application.reading.protocols.book_repository import (
 from src.application.reading.protocols.bookmark_repository import BookmarkRepositoryProtocol
 from src.application.reading.protocols.chapter_digest_repository import (
     ChapterDigestRepositoryProtocol,
+)
+from src.application.reading.protocols.ebook_text_extraction_service import (
+    EbookTextExtractionServiceProtocol,
 )
 from src.application.reading.protocols.highlight_repository import HighlightRepositoryProtocol
 from src.application.reading.protocols.highlight_style_repository import (
@@ -61,6 +67,7 @@ from src.application.reading.services.label_resolution_service import LabelResol
 from src.application.reflection.protocols.book_reflection_repository import (
     BookReflectionRepositoryProtocol,
 )
+from src.application.semantic.protocols.embedding_client import EmbeddingClientProtocol
 from src.application.tagging.protocols.tag_repository import TagRepositoryProtocol
 from src.application.web_reader.protocols.web_reading_position_repository import (
     WebReadingPositionRepositoryProtocol,
@@ -95,6 +102,7 @@ from src.infrastructure.library.queries.book_details_query import BookDetailsQue
 from src.infrastructure.library.queries.book_list_query import BookListQuery
 from src.infrastructure.library.repositories import BookRepository
 from src.infrastructure.library.repositories.chapter_repository import ChapterRepository
+from src.infrastructure.library.services.epub_parser_service import EpubParserService
 from src.infrastructure.notes.queries.note_query import NoteQuery
 from src.infrastructure.notes.repositories.note_repository import NoteRepository
 from src.infrastructure.reading.queries.book_statistics_query import BookStatisticsQuery
@@ -124,6 +132,12 @@ from src.infrastructure.tagging.repositories import TagRepository
 from src.infrastructure.web_reader.repositories.web_reading_position_repository import (
     WebReadingPositionRepository,
 )
+from tests.fakes import (
+    FakeEmbeddingClient,
+    FakeJobQueue,
+    FakeTextExtraction,
+    StubFileRepository,
+)
 
 
 def repositories_satisfy_their_protocols(
@@ -133,6 +147,7 @@ def repositories_satisfy_their_protocols(
     _user: UserRepositoryProtocol = UserRepository(db)
     _refresh_token: RefreshTokenRepositoryProtocol = RefreshTokenRepository(db)
     _token_service: TokenServiceProtocol = TokenServiceAdapter()
+    _epub_parser: EpubParserProtocol = EpubParserService()
     _book_library: LibraryBookRepositoryProtocol = BookRepository(db)
     _book_reading: ReadingBookRepositoryProtocol = BookRepository(db)
     _chapter: ChapterRepositoryProtocol = ChapterRepository(db)
@@ -184,3 +199,10 @@ def ai_service_satisfies_its_protocols(db: AsyncSession) -> None:
     _quiz: AIQuizServiceProtocol = service
     _chat: AIChatServiceProtocol = service
     _flashcards: AIFlashcardServiceProtocol = service
+
+
+def fakes_satisfy_their_protocols() -> None:
+    _queue: JobQueueServiceProtocol = FakeJobQueue()
+    _embeddings: EmbeddingClientProtocol = FakeEmbeddingClient()
+    _extraction: EbookTextExtractionServiceProtocol = FakeTextExtraction()
+    _files: FileRepositoryProtocol = StubFileRepository()

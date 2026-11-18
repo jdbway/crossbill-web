@@ -13,6 +13,7 @@ import {
   useTheme,
 } from '@mui/material';
 import { useEffect, type ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 
 interface CommonDialogProps {
   open: boolean;
@@ -30,6 +31,8 @@ interface CommonDialogProps {
   headerElement?: ReactNode;
 }
 
+const GUTTER = { xs: 3, sm: 5 };
+
 interface NavArrowProps {
   direction: 'previous' | 'next';
   navigation: DialogNavigation;
@@ -37,6 +40,7 @@ interface NavArrowProps {
 }
 
 const NavArrow = ({ direction, navigation, disabled }: NavArrowProps) => {
+  const { t } = useTranslation();
   const isPrevious = direction === 'previous';
   const enabled = isPrevious ? navigation.hasPrevious : navigation.hasNext;
 
@@ -44,7 +48,7 @@ const NavArrow = ({ direction, navigation, disabled }: NavArrowProps) => {
     <IconButton
       onClick={isPrevious ? navigation.onPrevious : navigation.onNext}
       disabled={!enabled || disabled}
-      aria-label={isPrevious ? 'Previous' : 'Next'}
+      aria-label={isPrevious ? t('common.actions.previous') : t('common.actions.next')}
     >
       {isPrevious ? <ArrowBackIcon /> : <ArrowForwardIcon />}
     </IconButton>
@@ -70,6 +74,7 @@ export const CommonDialog = ({
   isLoading = false,
   headerElement,
 }: CommonDialogProps) => {
+  const { t } = useTranslation();
   const theme = useTheme();
   const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
   const isTopmostDialog = useDialogStackEntry(open);
@@ -181,7 +186,7 @@ export const CommonDialog = ({
         },
       }}
     >
-      <DialogTitle>
+      <DialogTitle sx={{ px: GUTTER }}>
         <Box
           sx={{
             display: 'flex',
@@ -194,7 +199,7 @@ export const CommonDialog = ({
             edge="end"
             color="inherit"
             onClick={onClose}
-            aria-label="Close dialog"
+            aria-label={t('common.actions.closeDialog')}
             disabled={isLoading}
           >
             <CloseIcon />
@@ -216,7 +221,7 @@ export const CommonDialog = ({
             {headerElement}
           </Box>
         )}
-        <Box sx={{ px: 3 }}>
+        <Box sx={{ px: GUTTER }}>
           {navigation ? (
             <Box
               sx={{
@@ -224,7 +229,6 @@ export const CommonDialog = ({
                 flexDirection: 'column',
                 gap: 3,
                 minWidth: 0,
-                px: fullScreen ? 0 : 2,
               }}
             >
               {children}
@@ -242,8 +246,7 @@ export const CommonDialog = ({
             // Add safe-area padding for iPhone rounded corners
             // Uses max() to ensure minimum 16px padding, but respects safe-area-inset-bottom
             pb: 'max(16px, calc(16px + env(safe-area-inset-bottom)))',
-            pr: 2,
-            pl: 2,
+            px: GUTTER,
           }}
         >
           {footerNavigation ? (

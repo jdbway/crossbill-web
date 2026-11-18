@@ -29,16 +29,18 @@ export {
   MenuBook as BookCoverIcon,
   Bookmark as BookmarkFilledIcon,
   BookmarkBorder as BookmarkIcon,
+  CalendarMonthRounded as CalendarIcon,
   List as ChapterListIcon,
   StyleOutlined as FlashcardsIcon,
   // One glyph, one name: the quote mark on a card and the Highlights nav item
   // are the same idea, and `MenuBook` now means only "a book".
   FormatQuote as HighlightsIcon,
   Notes as NotesIcon,
+  // Page turns left before the chapter ends, in the reader's footer.
+  Redo as PagesLeftIcon,
   PaletteOutlined as PaletteIcon,
   // Reading the book here in the browser, not a session read on a device.
   ChromeReaderMode as ReaderIcon,
-  AutoStories as ReadingSessionIcon,
   Psychology as ReflectionIcon,
   Equalizer as StatisticsIcon,
   LocalOffer as TagIcon,
@@ -49,6 +51,7 @@ export {
   AutoAwesome as AIIcon,
   Check as AcceptIcon,
   Add as AddIcon,
+  ForumOutlined as ChatIcon,
   ContentCopy as CopyIcon,
   Delete as DeleteIcon,
   ArrowDropDown as DropdownIcon,
@@ -58,6 +61,7 @@ export {
   Link as LinkIcon,
   LinkOff as LinkOffIcon,
   NoteAdd as NoteAddIcon,
+  QuizOutlined as QuizIcon,
   Refresh as RegenerateIcon,
   Close as RejectIcon,
   Replay as RetryIcon,
@@ -65,6 +69,7 @@ export {
   Send as SendIcon,
   TextDecrease as SmallerTextIcon,
   SwapVert as SortIcon,
+  UploadFile as UploadIcon,
 } from '@mui/icons-material';
 
 // User/System icons

@@ -1,9 +1,14 @@
 import { useGetBookHighlightLabels } from '@/api/generated/highlight-labels/highlight-labels.ts';
 import type { HighlightLabelInBook } from '@/api/generated/model';
-import { PaletteIcon } from '@/theme/Icons.tsx';
-import { getContrastColor } from '@/utils/colorUtils.ts';
-import { Box, Chip } from '@mui/material';
+import { LabelChip } from '@/components/highlights/LabelChip.tsx';
+import { EditIcon, PaletteIcon } from '@/theme/Icons.tsx';
+import { DEFAULT_LABEL_COLOR } from '@/utils/colorUtils.ts';
+import { Box, Button } from '@mui/material';
+import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
+import { HighlightLabelsDialog } from './HighlightLabelsDialog.tsx';
+import { labelStyleName } from './labelStyleName.ts';
 import { SidebarSectionHeader } from './SidebarSectionHeader.tsx';
 
 interface HighlightLabelsListProps {
@@ -13,66 +18,11 @@ interface HighlightLabelsListProps {
   hideTitle?: boolean;
 }
 
-const getLabelDisplayName = (label: HighlightLabelInBook): string => {
-  if (label.label) {
-    return label.label;
-  }
-  const parts = [label.device_color, label.device_style].filter(Boolean);
-  return parts.length > 0 ? parts.join(' / ') : 'Unlabeled';
-};
+const getLabelDisplayName = (label: HighlightLabelInBook): string =>
+  label.label || labelStyleName(label);
 
 const getLabelColor = (label: HighlightLabelInBook): string => {
-  return label.ui_color || '#6B7280';
-};
-
-const LabelChip = ({
-  label,
-  isSelected,
-  onClick,
-}: {
-  label: HighlightLabelInBook;
-  isSelected: boolean;
-  onClick: () => void;
-}) => {
-  const color = getLabelColor(label);
-  const displayName = getLabelDisplayName(label);
-  const chipLabel = `${displayName} (${label.highlight_count})`;
-
-  return (
-    <Chip
-      label={
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-          <Box
-            sx={{
-              width: 8,
-              height: 8,
-              borderRadius: '50%',
-              backgroundColor: color,
-              flexShrink: 0,
-            }}
-          />
-          <span>{chipLabel}</span>
-        </Box>
-      }
-      variant={isSelected ? 'filled' : 'outlined'}
-      onClick={onClick}
-      // The one chip that keeps its own colour when selected: it is the
-      // colour the highlight was made in on the device.
-      sx={
-        isSelected
-          ? {
-              backgroundColor: color,
-              color: getContrastColor(color),
-              '&:hover': {
-                backgroundColor: color,
-                opacity: 0.85,
-                transform: 'translateY(-1px)',
-              },
-            }
-          : undefined
-      }
-    />
-  );
+  return label.ui_color || DEFAULT_LABEL_COLOR;
 };
 
 export const HighlightLabelsList = ({
@@ -81,31 +31,50 @@ export const HighlightLabelsList = ({
   onLabelClick,
   hideTitle,
 }: HighlightLabelsListProps) => {
+  const { t } = useTranslation();
   const { data } = useGetBookHighlightLabels(bookId);
+  const [isEditing, setIsEditing] = useState(false);
   const labels = data?.items;
 
   // Shown from one label up. Hiding the section below two meant a reader whose
   // highlights are all one colour never learned labels can be named or
-  // recoloured — the editor is only reachable through the colour dot inside a
-  // highlight dialog.
+  // recoloured at all.
   if (!labels || labels.length === 0) {
     return null;
   }
 
+  const editButton = (
+    <Button size="small" startIcon={<EditIcon />} onClick={() => setIsEditing(true)}>
+      {t('book.navigation.labels.editLabels')}
+    </Button>
+  );
+
   return (
     <Box>
-      {!hideTitle && <SidebarSectionHeader icon={PaletteIcon} title="Labels" />}
+      {hideTitle ? (
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>{editButton}</Box>
+      ) : (
+        <SidebarSectionHeader
+          icon={PaletteIcon}
+          title={t('book.navigation.labels.title')}
+          action={editButton}
+        />
+      )}
 
       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
         {labels.map((label) => (
           <LabelChip
             key={label.id}
-            label={label}
+            name={getLabelDisplayName(label)}
+            color={getLabelColor(label)}
+            count={label.highlight_count}
             isSelected={selectedLabelId === label.id}
             onClick={() => onLabelClick(selectedLabelId === label.id ? null : label.id)}
           />
         ))}
       </Box>
+
+      <HighlightLabelsDialog bookId={bookId} open={isEditing} onClose={() => setIsEditing(false)} />
     </Box>
   );
 };

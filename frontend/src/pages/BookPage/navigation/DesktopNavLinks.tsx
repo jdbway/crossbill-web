@@ -1,6 +1,7 @@
 import { Box, List, ListItemButton, ListItemIcon, ListItemText } from '@mui/material';
 import { createLink, useMatchRoute } from '@tanstack/react-router';
-import { BOOK_PAGE_LABELS, BOOK_PAGE_ROUTES } from './bookPageRoutes.ts';
+import { useTranslation } from 'react-i18next';
+import { BOOK_PAGE_LABEL_KEYS, BOOK_PAGE_ROUTES } from './bookPageRoutes.ts';
 
 const NavListItemButton = createLink(ListItemButton);
 
@@ -9,6 +10,7 @@ interface DesktopNavLinksProps {
 }
 
 export const DesktopNavLinks = ({ bookId }: DesktopNavLinksProps) => {
+  const { t } = useTranslation();
   const matchRoute = useMatchRoute();
 
   return (
@@ -28,6 +30,7 @@ export const DesktopNavLinks = ({ bookId }: DesktopNavLinksProps) => {
                 borderRadius: 1,
                 mb: 0.5,
                 py: 1,
+                mx: -2,
                 textDecoration: 'none',
                 color: 'inherit',
                 '&.Mui-selected': {
@@ -44,10 +47,9 @@ export const DesktopNavLinks = ({ bookId }: DesktopNavLinksProps) => {
                 <Icon />
               </ListItemIcon>
               <ListItemText
-                primary={BOOK_PAGE_LABELS[item.segment]}
+                primary={t(BOOK_PAGE_LABEL_KEYS[item.segment])}
                 slotProps={{
                   primary: {
-                    variant: 'body2',
                     sx: {
                       fontWeight: isActive ? 600 : 400,
                       color: isActive ? 'primary.main' : 'text.primary',

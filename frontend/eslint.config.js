@@ -3,6 +3,179 @@ import globals from 'globals';
 import reactHooks from 'eslint-plugin-react-hooks';
 import reactRefresh from 'eslint-plugin-react-refresh';
 import tseslint from 'typescript-eslint';
+import vitest from '@vitest/eslint-plugin';
+
+// Icons come from the registry, which gives each glyph one domain name and is
+// what keeps two unrelated meanings from sharing one. The type is not an icon,
+// so it stays importable anywhere.
+const ICON_REGISTRY = {
+  paths: [
+    {
+      name: '@mui/icons-material',
+      allowTypeImports: true,
+      message: 'Import icons from @/theme/Icons.tsx, adding one there if it is missing.',
+    },
+  ],
+  patterns: [
+    {
+      group: ['@mui/icons-material/*'],
+      message: 'Import icons from @/theme/Icons.tsx, adding one there if it is missing.',
+    },
+  ],
+};
+
+// Readium stays below the engine seam. The adapter and its own modules are what
+// translate between the engine and the EbookReader interface; letting a hook or
+// a component reach past them for a `Locator` would put Readium's types back in
+// the UI and make a second engine impossible. Types are restricted too,
+// deliberately: the seam exists so that its own types, not the engine's, are
+// what cross it.
+const READIUM_SEAM = {
+  patterns: [
+    {
+      group: ['@readium/*'],
+      message:
+        'Only the engine adapter speaks Readium. Everything else goes through the EbookReader seam in @/components/reader/engine/EbookReader.ts.',
+    },
+  ],
+};
+
+// The component tier's boundary. `render` mounts a component on its own, which
+// is the tier reserved for the directories below; everywhere else a `.test.tsx`
+// drives a real route. `cleanup` is not restricted — a route test that renders
+// twice still needs it.
+const DIRECT_RENDER = {
+  paths: [
+    {
+      name: 'vitest-browser-react',
+      importNames: ['render'],
+      message:
+        'Behaviour tests drive a real route: use renderApp from @tests/harness/renderApp. Rendering a component on its own is the component tier, which is limited to the allowlist in frontend/claude.md > Testing.',
+    },
+  ],
+};
+
+/**
+ * The directories whose `.test.tsx` files may render a component directly.
+ * Each earns it by having behaviour a route test could not pin down — see
+ * `frontend/claude.md > Testing` for what each one is and why.
+ */
+const COMPONENT_TIER = [
+  'src/components/reader/**/*.test.tsx',
+  'src/components/carousel/**/*.test.tsx',
+  'src/hooks/**/*.test.tsx',
+];
+
+const SENTENCE_TEXT_QUERY_MESSAGE =
+  'Assert the state, not the sentence: reach for the role and accessible name that state goes by ' +
+  "(getByRole('status'), getByRole('alertdialog', { name: /delete/i })), adding the role or label in " +
+  'src/ if it has none. Fixture prose belongs in a named constant, and a message that is itself the ' +
+  'behaviour under test is asserted from one — once.';
+
+// Invalidation belongs in src/lib/cacheEvents.ts, which owns the query keys and
+// takes them from the generated getters. A hand-written key elsewhere once
+// matched nothing and left deleted books in the list for five minutes.
+// `setQueryData` is deliberately not restricted: optimistic updates, cache
+// seeding and write-through are not invalidation and belong at their call site.
+const CACHE_INVALIDATION = [
+  {
+    selector: 'CallExpression[callee.property.name=/^(invalidateQueries|refetchQueries)$/]',
+    message:
+      'Express the change as an event in @/lib/cacheEvents.ts rather than invalidating a query key here.',
+  },
+];
+
+// User-facing copy lives in src/i18n/locales, so it can be translated and
+// edited in one place. Catches the two shapes copy most often takes in a
+// component: text between tags, and the attributes a user reads or hears.
+const HARDCODED_COPY_MESSAGE =
+  'Move user-facing text into src/i18n/locales/en/ and read it with t() from useTranslation().';
+
+const HARDCODED_COPY = [
+  {
+    selector: 'JSXText[value=/[A-Za-z]/]',
+    message: HARDCODED_COPY_MESSAGE,
+  },
+  {
+    selector:
+      'JSXAttribute[name.name=/^(aria-label|title|placeholder|label|alt|helperText|tooltip)$/] > Literal[value=/[A-Za-z]/]',
+    message: HARDCODED_COPY_MESSAGE,
+  },
+];
+
+// A test that quotes a whole sentence of copy back at the app breaks on every
+// rewording, and the sentence-case and ellipsis conventions in claude.md mean
+// rewording keeps happening. Trailing `.`, `?` or `!` is what tells a sentence
+// from the formatted values `getByText` is for — `Duration 1h 11m`, `63%`,
+// `Pages 102 – 115` — which stay allowed, because there the format is the
+// behaviour.
+const SENTENCE_TEXT_QUERY = [
+  {
+    selector: "CallExpression[callee.property.name='getByText'] > Literal[value=/[.?!]$/]",
+    message: SENTENCE_TEXT_QUERY_MESSAGE,
+  },
+  {
+    selector:
+      "CallExpression[callee.property.name='getByText'] > Literal[regex.pattern=/\\\\[.?!]$/]",
+    message: SENTENCE_TEXT_QUERY_MESSAGE,
+  },
+];
+
+// A test that sleeps is slow when the wait is long and flaky when it is short,
+// and proves an absence only for as long as it happened to wait. The harness
+// helpers are the sanctioned waits: they end on what the test is waiting for.
+const REAL_TIME_WAIT_MESSAGE =
+  'Wait on what the test is waiting for, not on the clock: expect.poll or expect.element for a ' +
+  'state, fakeTheClock for a timer, aHold for a slow answer, and afterTheAnswersRender, ' +
+  'unmountAndAwaitItsWrites or afterFrames from @tests/harness/settle to prove an absence.';
+
+const REAL_TIME_WAIT = {
+  paths: ['timers/promises', 'node:timers/promises'].map((name) => ({
+    name,
+    message: REAL_TIME_WAIT_MESSAGE,
+  })),
+};
+
+const TIMER_GLOBALS = ['setTimeout', 'setInterval'];
+
+// The Vitest config's `testTimeout` is the one budget a test gets. A test that
+// needs more is waiting in real time on something it should drive instead, and
+// raising its own limit is how a suite grows 60-second tests.
+const LONG_TIMEOUT_MESSAGE =
+  'Keep timeouts at 10 000 ms or less: testTimeout in vitest.config.ts is the budget. Drive the ' +
+  'wait instead: fake the clock, inject the delay, or poll for the state with expect.poll.';
+
+const LONG_TIMEOUT = [
+  {
+    selector: "Property[key.name='timeout'][value.value>10000]",
+    message: LONG_TIMEOUT_MESSAGE,
+  },
+  {
+    selector:
+      'CallExpression[callee.name=/^(test|it|describe|beforeEach|afterEach|beforeAll|afterAll)$/] > Literal.arguments[value>10000]',
+    message: LONG_TIMEOUT_MESSAGE,
+  },
+];
+
+/**
+ * Composes the import restrictions that apply to one set of files.
+ *
+ * Flat config replaces a rule's options wholesale when a later block names the
+ * same rule, so a block restricting one thing silently drops every restriction
+ * an earlier block put on the same file — which is how the icon-registry rule
+ * came to be enforced on the reader engine and the tests alone. Each block
+ * below therefore names every restriction its files are under.
+ */
+const restrictImports = (...restrictions) => [
+  'error',
+  {
+    paths: restrictions.flatMap((restriction) => restriction.paths ?? []),
+    patterns: restrictions.flatMap((restriction) => restriction.patterns ?? []),
+  },
+];
+
+/** The same composition, for `no-restricted-syntax` and the same reason. */
+const restrictSyntax = (...restrictions) => ['error', ...restrictions.flat()];
 
 export default tseslint.config(
   {
@@ -41,53 +214,83 @@ export default tseslint.config(
       ],
       '@typescript-eslint/no-unnecessary-condition': 'warn',
       'no-console': ['warn', { allow: ['warn', 'error'] }],
-      // Invalidation belongs in src/lib/cacheEvents.ts, which owns the query keys
-      // and takes them from the generated getters. A hand-written key here once
-      // matched nothing and left deleted books in the list for five minutes.
-      // `setQueryData` is deliberately not restricted: optimistic updates, cache
-      // seeding and write-through are not invalidation and belong at their call site.
-      'no-restricted-syntax': [
-        'error',
-        {
-          selector:
-            'CallExpression[callee.property.name=/^(invalidateQueries|refetchQueries)$/]',
-          message:
-            'Express the change as an event in @/lib/cacheEvents.ts rather than invalidating a query key here.',
-        },
-      ],
+      'no-restricted-syntax': restrictSyntax(CACHE_INVALIDATION),
+    },
+  },
+  {
+    files: ['src/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-syntax': restrictSyntax(CACHE_INVALIDATION, HARDCODED_COPY),
+      // The typescript-eslint variant, for `allowTypeImports`.
+      '@typescript-eslint/no-restricted-imports': restrictImports(ICON_REGISTRY, READIUM_SEAM),
     },
   },
   {
     // The one module allowed to invalidate, since it is where the keys live.
     files: ['src/lib/cacheEvents.ts'],
-    rules: { 'no-restricted-syntax': 'off' },
+    rules: { 'no-restricted-syntax': restrictSyntax(HARDCODED_COPY) },
   },
   {
-    // Icons come from the registry, which gives each glyph one domain name and
-    // is what keeps two unrelated meanings from sharing one. The type is not an
-    // icon, so it stays importable anywhere.
-    files: ['src/**/*.{ts,tsx}'],
-    ignores: ['src/theme/Icons.tsx'],
+    // The registry itself, which is where the icons are imported.
+    files: ['src/theme/Icons.tsx'],
+    rules: { '@typescript-eslint/no-restricted-imports': restrictImports(READIUM_SEAM) },
+  },
+  {
+    // The adapter and its own modules: the seam's inside.
+    files: ['src/components/reader/engine/**'],
+    rules: { '@typescript-eslint/no-restricted-imports': restrictImports(ICON_REGISTRY) },
+  },
+  {
+    // A test may reach past the seam to stand in for the engine.
+    files: ['src/**/*.test.{ts,tsx}', 'tests/**/*.{ts,tsx}'],
     rules: {
-      // The typescript-eslint variant, for `allowTypeImports`.
-      '@typescript-eslint/no-restricted-imports': [
+      '@typescript-eslint/no-restricted-imports': restrictImports(ICON_REGISTRY),
+      'no-restricted-syntax': restrictSyntax(CACHE_INVALIDATION, SENTENCE_TEXT_QUERY, LONG_TIMEOUT),
+    },
+  },
+  {
+    // A test with no assertion passes whatever the app does, and a skipped or
+    // focused one hides the rest. Helpers named `expect…` or `assert…` count
+    // as assertions, which is how the suite names the ones it shares.
+    files: ['src/**/*.test.{ts,tsx}'],
+    plugins: { vitest },
+    rules: {
+      ...vitest.configs.recommended.rules,
+      'vitest/expect-expect': ['error', { assertFunctionNames: ['expect', 'expect*', 'assert*'] }],
+      // Vitest's `expect(value, message)` labels a failure inside a loop.
+      'vitest/valid-expect': ['error', { maxArgs: 2 }],
+      'vitest/no-conditional-expect': 'error',
+      'vitest/no-conditional-in-test': 'error',
+      'vitest/no-standalone-expect': 'error',
+      'vitest/no-disabled-tests': 'error',
+      'vitest/no-focused-tests': 'error',
+      'vitest/no-identical-title': 'error',
+      'vitest/prefer-to-have-length': 'error',
+      'vitest/prefer-to-be': 'error',
+      'vitest/prefer-to-contain': 'error',
+      'no-restricted-globals': [
         'error',
-        {
-          paths: [
-            {
-              name: '@mui/icons-material',
-              allowTypeImports: true,
-              message: 'Import icons from @/theme/Icons.tsx, adding one there if it is missing.',
-            },
-          ],
-          patterns: [
-            {
-              group: ['@mui/icons-material/*'],
-              message: 'Import icons from @/theme/Icons.tsx, adding one there if it is missing.',
-            },
-          ],
-        },
+        ...TIMER_GLOBALS.map((name) => ({ name, message: REAL_TIME_WAIT_MESSAGE })),
       ],
+      'no-restricted-properties': [
+        'error',
+        ...['window', 'globalThis', 'self'].flatMap((object) =>
+          TIMER_GLOBALS.map((property) => ({ object, property, message: REAL_TIME_WAIT_MESSAGE }))
+        ),
+      ],
+      '@typescript-eslint/no-restricted-imports': restrictImports(ICON_REGISTRY, REAL_TIME_WAIT),
+    },
+  },
+  {
+    // Outside the component tier, a rendering test renders a route.
+    files: ['src/**/*.test.tsx'],
+    ignores: COMPONENT_TIER,
+    rules: {
+      '@typescript-eslint/no-restricted-imports': restrictImports(
+        ICON_REGISTRY,
+        DIRECT_RENDER,
+        REAL_TIME_WAIT
+      ),
     },
   }
 );

@@ -39,13 +39,12 @@ MEDIA_TYPE = "application/xhtml+xml"
 # One sentence per chapter that occurs nowhere else in the book, and the place each
 # one resolves to. `THE_SAME_TWICE` is chapter one's repeated sentence.
 CH1_QUOTE = "Nothing else in the house moved"
-CH1_XPOINT = "/body/DocFragment[1]/body/div[1]/p[4]"
+CH1_XPOINT = "/body/DocFragment[1]/body/div[1]/p[4]/text().0"
 CH1_POSITION = {"index": 10, "char_index": 0}
 CH1_SELECTOR = "#intro > p:nth-child(5)"
 CH2_QUOTE = "Morning arrived without ceremony"
-CH2_XPOINT = "/body/DocFragment[2]/body/div[1]/p[1]"
-CH2_POSITION = {"index": 16, "char_index": 0}
-CH2_HEADING_XPOINT = "/body/DocFragment[2]/body/div[1]/h1[1]"
+CH2_XPOINT = "/body/DocFragment[2]/body/div[1]/p[1]/text().0"
+CH2_HEADING_XPOINT = "/body/DocFragment[2]/body/div[1]/h1[1]/text().0"
 THE_SAME_TWICE = "The lantern went out at midnight"
 
 IDLE_SECONDS = 1800
@@ -419,6 +418,8 @@ async def test_a_book_with_no_epub_is_not_found(
     response = await write(client, test_book, locator(CH1_HREF, quote=CH1_QUOTE))
 
     assert response.status_code == status.HTTP_404_NOT_FOUND, response.text
+    assert response.json()["error"] == "not_found"
+    assert await stored_position(db_session, test_book) is None
 
 
 async def test_another_users_book_is_not_found(
@@ -429,6 +430,8 @@ async def test_another_users_book_is_not_found(
     response = await write(client, theirs, locator(CH1_HREF, quote=CH1_QUOTE))
 
     assert response.status_code == status.HTTP_404_NOT_FOUND, response.text
+    assert response.json()["error"] == "not_found"
+    assert await stored_position(db_session, theirs) is None
 
 
 async def test_the_publication_cookie_alone_is_refused(

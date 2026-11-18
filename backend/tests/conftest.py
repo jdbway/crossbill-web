@@ -14,16 +14,12 @@ os.environ.setdefault(
 )
 os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
 
-import inspect
-import itertools
 from collections.abc import AsyncGenerator, Awaitable, Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, date, timedelta
 from datetime import datetime as dt
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from ebooklib import epub
@@ -53,7 +49,6 @@ from src.infrastructure.identity.dependencies import (
 )
 from src.infrastructure.identity.services.token_service import ACCESS_TOKEN_EXPIRE_MINUTES
 from src.infrastructure.library.repositories import file_repository
-from src.infrastructure.library.schemas import EreaderBookMetadata
 from src.infrastructure.reading.routers.reader_clock import reader_today
 from src.infrastructure.reading.schemas.ereader_highlight_schemas import (
     KOREADER_DATETIME_FORMAT,
@@ -65,6 +60,7 @@ from src.models import (
     Chapter,
     Flashcard,
     Highlight,
+    Note,
     ReadingSession,
     Tag,
     TagGroup,
@@ -73,21 +69,26 @@ from src.models import (
 from src.models import (
     HighlightStyle as HighlightStyleModel,
 )
-from tests.ai_helpers import FakeAgent, digest_output
+from tests.ai_helpers import FakeAgent, digest_output, flashcard_output
+from tests.fakes import FakeJobQueue, FakeTextExtraction, StubFileRepository
+
+OTHER_USER_ID = 2
 
 logging.getLogger("aiosqlite").setLevel(logging.WARNING)
 
 
-def build_test_epub(path: Path) -> bytes:
+def build_test_epub(path: Path, cover: bytes | None = None) -> bytes:
     """Write a one-chapter EPUB to path and return its bytes.
 
     The single paragraph is "Some content.", reachable at the xpoint
-    "/body/DocFragment[2]/body/p[1]/text().0".
+    "/body/DocFragment[2]/body/p[1]/text().0". A ``cover`` is PNG bytes.
     """
     book = epub.EpubBook()
     book.set_identifier("upload-test-epub")
     book.set_title("Uploaded Book")
     book.set_language("en")
+    if cover is not None:
+        book.set_cover("cover.png", cover, create_page=False)
 
     chapter = epub.EpubHtml(title="Chapter 1", file_name="chap01.xhtml", lang="en")
     chapter.content = "<h1>Chapter 1</h1><p>Some content.</p>"
@@ -216,6 +217,29 @@ async def create_test_highlight(
     return highlight
 
 
+async def plant_highlight(
+    db_session: AsyncSession, book: Book, text: str, *, deleted: bool = False
+) -> Highlight:
+    """A highlight owned by the book's owner, soft-deleted if asked."""
+    return await create_test_highlight(
+        db_session,
+        book,
+        book.user_id,
+        text=text,
+        datetime_str="2024-01-15 14:30:22",
+        deleted_at=dt.now(UTC) if deleted else None,
+    )
+
+
+async def plant_note(db_session: AsyncSession, book: Book, title: str, body: str = "") -> Note:
+    """A note owned by the book's owner and linked to it."""
+    note = Note(user_id=book.user_id, title=title, body=body, books=[book])
+    db_session.add(note)
+    await db_session.commit()
+    await db_session.refresh(note)
+    return note
+
+
 async def create_test_reading_session(
     db_session: AsyncSession,
     book: Book,
@@ -261,9 +285,9 @@ def readers_today(day: date) -> Iterator[None]:
 async def create_test_highlight_style(
     db_session: AsyncSession,
     user_id: int,
-    book_id: int,
+    book_id: int | None,
     device_color: str = "gray",
-    device_style: str = "lighten",
+    device_style: str | None = "lighten",
     label: str | None = None,
     ui_color: str | None = None,
 ) -> HighlightStyleModel:
@@ -342,42 +366,6 @@ async def test_user(db_session: AsyncSession) -> User:
     return user
 
 
-def contract_checked_queue() -> AsyncMock:
-    """A fake job queue that checks each enqueue against the real SAQ task.
-
-    A bare AsyncMock accepts any method and any keyword, so an enqueue site that
-    renamed or dropped an argument its task requires would keep every test green
-    and fail only in production, inside the worker. Binding the kwargs to the
-    real task's signature moves that failure to the test that caused it.
-
-    It reports through ``pytest.fail`` rather than raising ``TypeError`` on
-    purpose: the enqueue seams catch ``Exception`` and log, so a plain error
-    would be swallowed here exactly as it is in production and prove nothing.
-    """
-    counter = itertools.count()
-
-    def enqueue(  # noqa: ANN202
-        function_name: str,
-        retries: int = 3,
-        timeout_seconds: int = 300,
-        **kwargs: object,
-    ):
-        from src import worker  # noqa: PLC0415
-
-        task = getattr(worker, function_name, None)
-        if task is not None:
-            try:
-                # SimpleNamespace stands in for the ctx SAQ passes positionally.
-                inspect.signature(task).bind(SimpleNamespace(), **kwargs)
-            except TypeError as exc:
-                pytest.fail(f"enqueue({function_name!r}) does not match the task: {exc}")
-        return f"saq:test:{next(counter)}"
-
-    fake = AsyncMock()
-    fake.enqueue = AsyncMock(side_effect=enqueue)
-    return fake
-
-
 @contextmanager
 def app_test_wiring(db_session: AsyncSession) -> Iterator[None]:
     """Point the app at the test session, the local file store and a fake queue."""
@@ -398,7 +386,7 @@ def app_test_wiring(db_session: AsyncSession) -> Iterator[None]:
     # Without a stand-in, every write path that enqueues an embedding fails at
     # DI resolution -- before the enqueuer's own error handling can swallow
     # anything -- so a note create would 500 in tests and nowhere else.
-    container.job_queue_service.override(contract_checked_queue())
+    container.job_queue_service.override(FakeJobQueue())
 
     try:
         yield
@@ -477,7 +465,7 @@ async def browser_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient
 
 
 @pytest.fixture
-def job_queue(client: AsyncClient) -> AsyncMock:
+def job_queue(client: AsyncClient) -> FakeJobQueue:
     """The contract-checked queue fake the ``client`` fixture put on the container.
 
     Reached through the container rather than installed per-suite so there is
@@ -488,8 +476,17 @@ def job_queue(client: AsyncClient) -> AsyncMock:
     from src.core import container  # noqa: PLC0415
 
     queue = container.job_queue_service()
-    assert isinstance(queue, AsyncMock)
+    assert isinstance(queue, FakeJobQueue)
     return queue
+
+
+@pytest.fixture
+async def other_user(db_session: AsyncSession) -> User:
+    """A second account, for user-isolation cases."""
+    user = User(id=OTHER_USER_ID, email="other@test.com")
+    db_session.add(user)
+    await db_session.commit()
+    return user
 
 
 @pytest.fixture
@@ -569,17 +566,15 @@ async def test_tag(db_session: AsyncSession, test_book: Book, test_user: User) -
 
 
 # Type alias for the book creation fixture (used across multiple test files)
-CreateBookFunc = Callable[[dict[str, Any]], Awaitable[EreaderBookMetadata]]
+CreateBookFunc = Callable[[dict[str, Any]], Awaitable[Book]]
 
 
 @pytest.fixture
-async def create_book_via_api(plugin_client: AsyncClient) -> CreateBookFunc:
-    """Fixture factory for creating books via the plugin-only ``/ereader/books``."""
+async def create_book(db_session: AsyncSession, test_user: User) -> CreateBookFunc:
+    """Fixture factory for the test user's books, keyed by ``client_book_id`` as synced ones are."""
 
-    async def _create_book(book_data: dict[str, Any]) -> EreaderBookMetadata:
-        response = await plugin_client.post("/api/v1/ereader/books", json=book_data)
-        assert response.status_code == 200
-        return EreaderBookMetadata(**response.json())
+    async def _create_book(book_data: dict[str, Any]) -> Book:
+        return await create_test_book(db_session=db_session, user_id=test_user.id, **book_data)
 
     return _create_book
 
@@ -588,10 +583,9 @@ async def create_book_via_api(plugin_client: AsyncClient) -> CreateBookFunc:
 
 
 @pytest.fixture
-def ai_enabled() -> Iterator[None]:
+def ai_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
     """Let the AI endpoints past ``require_ai_enabled``."""
-    with patch("src.infrastructure.common.dependencies.is_ai_enabled", return_value=True):
-        yield
+    monkeypatch.setattr("src.infrastructure.common.dependencies.is_ai_enabled", lambda: True)
 
 
 @pytest.fixture
@@ -612,33 +606,44 @@ async def epub_chapter(db_session: AsyncSession, test_book: Book) -> Chapter:
 
 
 @pytest.fixture
-def chapter_text(client: AsyncClient) -> Iterator[MagicMock]:
-    """The extracted text of the chapter under test: set ``.return_value``."""
+def chapter_text(client: AsyncClient) -> Iterator[FakeTextExtraction]:
+    """The extraction of the chapter under test: set ``.text``."""
     from src.core import container  # noqa: PLC0415
 
-    file_repo = AsyncMock()
-    file_repo.get_epub.return_value = b"PK\x03\x04 not really an EPUB"
-    extraction = MagicMock()
-    extraction.extract_chapter_text.return_value = "The chapter is about testing."
-
-    container.shared.file_repository.override(file_repo)
+    extraction = FakeTextExtraction()
+    container.shared.file_repository.override(StubFileRepository())
     container.shared.ebook_text_extraction_service.override(extraction)
-    yield extraction.extract_chapter_text
+    yield extraction
     container.shared.ebook_text_extraction_service.reset_last_overriding()
     container.shared.file_repository.reset_last_overriding()
 
 
 @pytest.fixture
-def digest_agent() -> Iterator[FakeAgent]:
+def digest_agent(monkeypatch: pytest.MonkeyPatch) -> FakeAgent:
     """The agent ``generate_digest`` runs, recording the prompt it received."""
-    agent = FakeAgent(digest_output())
-    with patch("src.infrastructure.ai.ai_service.get_digest_agent", return_value=agent):
-        yield agent
+    return install_agent(monkeypatch, "get_digest_agent", FakeAgent(digest_output()))
 
 
 @pytest.fixture
-def quiz_agent() -> Iterator[FakeAgent]:
+def quiz_agent(monkeypatch: pytest.MonkeyPatch) -> FakeAgent:
     """The agent ``start_quiz`` and ``continue_quiz`` run."""
     agent = FakeAgent("**Question 1/5:** What is the main topic?")
-    with patch("src.infrastructure.ai.ai_service.get_quiz_agent", return_value=agent):
-        yield agent
+    return install_agent(monkeypatch, "get_quiz_agent", agent)
+
+
+@pytest.fixture
+def chat_agent(monkeypatch: pytest.MonkeyPatch) -> FakeAgent:
+    """The agent ``continue_chat`` runs."""
+    return install_agent(monkeypatch, "get_chat_agent", FakeAgent("Tell me more."))
+
+
+@pytest.fixture
+def flashcard_agent(monkeypatch: pytest.MonkeyPatch) -> FakeAgent:
+    """The agent ``generate_flashcard_suggestions`` runs."""
+    agent = FakeAgent(flashcard_output([("Q1", "A1"), ("Q2", "A2")]))
+    return install_agent(monkeypatch, "get_flashcard_agent", agent)
+
+
+def install_agent(monkeypatch: pytest.MonkeyPatch, factory: str, agent: FakeAgent) -> FakeAgent:
+    monkeypatch.setattr(f"src.infrastructure.ai.ai_service.{factory}", lambda: agent)
+    return agent

@@ -60,14 +60,80 @@ is stale. Never hand-edit files under `src/api/generated`.
   form is one of several controls on screen. Pending states are the verb in
   sentence case plus an ellipsis — `Saving...`, never `Updating...`.
 
+## UI copy (i18n)
+
+Every user-facing string lives in `src/i18n/locales/en/`, read through
+react-i18next — never written inline in a component. That is what lets the
+copy be translated, and edited in one place. A lint rule rejects text between
+JSX tags and literal `aria-label`/`title`/`placeholder`/`label`/`alt`/
+`helperText`/`tooltip` values in `src/`.
+
+- **One JSON file per area** (`highlights.json`, `reader.json`, …); the file
+  name is its top-level key and `locales/en/index.ts` lists them. Keys nest by
+  screen, then component, then purpose, so a key says where its text appears:
+  `highlights.viewDialog.deleteConfirm.message`.
+- **Shared text is defined once** in `common.json`: action verbs (`Save`,
+  `Cancel`), states (`Saving...`), entity names (`Highlights`), fallbacks
+  (`Unknown author`), form fields and validation. Reuse a common key only when
+  the meaning is the same, not merely the spelling; text shared within one
+  area goes under that area's `shared` key.
+- **Components** call `const { t } = useTranslation()`. Plain modules import
+  `i18n` from `@/i18n` and call `i18n.t` lazily, inside a function — never at
+  module load, where it would freeze the language. Label maps hold keys, not
+  text.
+- **Never concatenate copy.** Interpolate (`{{count}}`, `{{title}}`) and use
+  i18next plurals (`key_one` / `key_other`) with `count`; wrap sentences that
+  contain markup in `<Trans>`.
+- **Keys are typed** (`src/i18n/i18next.d.ts`): a missing or misspelled key
+  fails `npm run type-check`. A dynamic key must be a union of literal keys.
+
 ## Testing
 
-Behavior tests over whole routes are the only tier. A test renders a real route
-through the real router, the real auth gate and the real providers, mocks the
-network with MSW, and drives the page the way a user would.
+Three tiers. Which one a test belongs to is a decision about the code under it,
+not a matter of taste.
+
+**Pure logic** — `.test.ts`, in node. Parsers, arithmetic, normalisation:
+genuinely tricky pure functions, where a page-level test could not pin down the
+edge cases.
+
+**Route tier** — `.test.tsx` through `renderApp`. Everything user-facing, and
+the default for a new page or flow. A test renders a real route through the
+real router, the real auth gate and the real providers, mocks the network with
+MSW, and drives the page the way a user would.
+
+**Component tier** — `.test.tsx` rendering a component directly. For components
+with substantial behaviour of their own and a real engine or DOM contract to
+hold to. A dialog with two arrow buttons is not one of these: it is proven by
+the page that uses it. The allowlist, and what earns each entry:
+
+- `src/components/reader/**` — the reader engine. It has grown enough behaviour
+  of its own that driving it only through `/reader` would be slower and less
+  precise, not better.
+- `src/components/carousel/**` — paging arithmetic measured against a host of a
+  width the test sets. At route level the host is the viewport, so the item
+  pitch and the bleed margins cannot be pinned.
+- `src/hooks/**` — a hook with no component of its own gets a small `Probe`
+  component that uses it. `screen.rerender` stages the races these hooks exist
+  for — a refetch landing mid-keystroke (#259) — which a route cannot
+  reproduce.
+
+The boundary is a lint rule, not a convention: importing `render` from
+`vitest-browser-react` is an error in `src/**/*.test.tsx` outside that
+allowlist, which lives in `eslint.config.js`. Widening it means adding the
+directory there and a line here saying what earned it. `cleanup` is not
+restricted — a route test that renders twice still needs it.
 
 Run them with `npm run test` (headless Chromium via Vitest browser mode) or
 `npm run test:watch`. `npx playwright install chromium` once, first time.
+
+Vitest runs two projects, and the file extension picks the project:
+
+- `unit` — `*.test.ts`, in node, with no setup file and no MSW. Pure logic
+  only. `npm run test:unit` runs just these, in about a second.
+- `browser` — `*.test.tsx`, in Chromium, with `tests/setup.ts`. Anything that
+  renders, or that needs the real DOM (`DOMParser`, `Range`, layout).
+
+`npm run test` runs both, and so does CI.
 
 ### What belongs in a test
 
@@ -80,12 +146,50 @@ Run them with `npm run test` (headless Chromium via Vitest browser mode) or
   `screen.getByRole('dialog').getByRole('button', { name: 'Close', exact: true })`.
   Reach for `data-testid` only when nothing else works; giving the element a
   proper `aria-label` in `src/` is usually the better fix.
+- `getByText` for formatted **values** — `Duration 1h 11m`, `Pages 102 – 115`,
+  `63%` — where the format is the behaviour. Never for a sentence of copy: a
+  test that quotes the app's wording back at it breaks on every rewrite, and
+  the sentence-case and ellipsis conventions above mean rewrites keep coming.
+  Ask for the state instead: `getByRole('status')` for an empty state,
+  `getByRole('alert')` for a failure, `getByRole('alertdialog', { name:
+/delete/i })` for a confirmation, or the affordance the state puts on screen
+  — the bookmark rail is proven empty by its list being gone. Add the role or
+  the label in `src/` if the state has none.
+
+  A `no-restricted-syntax` rule in `eslint.config.js` rejects a `getByText`
+  literal ending in `.`, `?` or `!`. Two things legitimately still hold a
+  sentence, and both pass the rule by being named: prose the test wrote into
+  its own fixture, and a message that is itself the behaviour under test —
+  asserted from a constant, once, in the one test that is about it.
 
 ### What does not
 
-- Component-internal tests, shallow renders, snapshots, coverage targets.
+- Shallow renders, snapshots, coverage targets.
+- Rendering a component on its own outside the component tier above. Fold the
+  behaviour into the route test that already exercises the component, or leave
+  it to the route test that proves it by using it at all.
 - Mocking hooks, contexts or modules. Mock **the network**, never the app.
   If a test needs a context stubbed, the test is at the wrong level.
+
+### Waiting
+
+A test never waits on the clock. `setTimeout`, `setInterval` and
+`timers/promises` are lint errors in `src/**/*.test.*`, and so is a `timeout`
+above 10 s: `testTimeout` in `vitest.config.ts` is the whole budget. Wait on
+what the test is waiting for instead:
+
+- a state: `expect.poll` or `expect.element`;
+- a timer or a debounce: `fakeTheClock()` from `tests/harness/fakeClock.ts`,
+  then `vi.advanceTimersByTimeAsync`;
+- a slow answer: a handler held on `aHold()` and released by the test;
+- an absence, which needs something to have had its chance:
+  `tests/harness/settle.ts` — `afterTheAnswersRender(queryClient)` once every
+  request is answered and rendered, `unmountAndAwaitItsWrites()` for the
+  `keepalive` write a reader sends on its way out, `afterFrames(n)` for a
+  scroll or a render that lands a frame late.
+
+The Vitest plugin's rules are on too: every test asserts (a helper named
+`expect…` or `assert…` counts), and nothing is skipped or focused.
 
 ### How it is wired
 
@@ -105,7 +209,3 @@ Run them with `npm run test` (headless Chromium via Vitest browser mode) or
 Copy `src/pages/BookPage/BookPage.test.tsx` (render) and
 `src/pages/BookPage/Notes/NotesPage.test.tsx` (mutation flow + error path) when
 adding tests for a new page. Tests live next to the page they cover.
-
-Plain node-environment unit tests are reserved for genuinely tricky pure logic
-in `src/utils` — parsing, normalisation, arithmetic — where a page-level test
-could not pin down the edge cases.

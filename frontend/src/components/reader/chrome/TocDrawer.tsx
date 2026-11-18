@@ -1,0 +1,115 @@
+import { EmptyStateText } from '@/components/EmptyStateText.tsx';
+import type { EbookTocEntry } from '@/components/reader/engine/EbookReader.ts';
+import { isNavigable } from '@/components/reader/toc.ts';
+import { SectionTitle } from '@/components/typography/SectionTitle.tsx';
+import { CloseIcon } from '@/theme/Icons.tsx';
+import { ICON_SIZE } from '@/theme/iconSizes.ts';
+import { Box, Drawer, IconButton, List, ListItemButton, ListItemText, Stack } from '@mui/material';
+import { Fragment, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
+
+/** How far one level of nesting indents a chapter under its parent. */
+const INDENT_PER_LEVEL = 2;
+
+interface TocDrawerProps {
+  open: boolean;
+  onClose: () => void;
+  toc: EbookTocEntry[];
+  onSelect: (entry: EbookTocEntry) => void;
+  /** The entry the reader is in, as the engine resolved it. */
+  currentHref: string | null;
+}
+
+interface TocEntriesProps {
+  entries: EbookTocEntry[];
+  depth: number;
+  onSelect: (entry: EbookTocEntry) => void;
+  currentHref: string | null;
+  /** Attached to the marked entry, which scrolls it into view as it mounts. */
+  currentRef: (node: HTMLDivElement | null) => void;
+}
+
+const TocEntries = ({ entries, depth, onSelect, currentHref, currentRef }: TocEntriesProps) => {
+  const { t } = useTranslation();
+
+  return (
+    <>
+      {entries.map((entry, index) => {
+        const navigable = isNavigable(entry);
+        const isCurrent = entry.href === currentHref;
+        return (
+          <Fragment key={`${entry.href}-${index}`}>
+            <ListItemButton
+              ref={isCurrent ? currentRef : undefined}
+              disabled={!navigable}
+              selected={isCurrent}
+              aria-current={isCurrent ? 'location' : undefined}
+              onClick={() => onSelect(entry)}
+              sx={{ pl: 2 + depth * INDENT_PER_LEVEL, borderRadius: 1 }}
+            >
+              <ListItemText primary={entry.title || t('common.fallbacks.untitled')} />
+            </ListItemButton>
+            <TocEntries
+              entries={entry.children}
+              depth={depth + 1}
+              onSelect={onSelect}
+              currentHref={currentHref}
+              currentRef={currentRef}
+            />
+          </Fragment>
+        );
+      })}
+    </>
+  );
+};
+
+/** The book's contents as the manifest publishes them, with the chapter being read marked. */
+export const TocDrawer = ({ open, onClose, toc, onSelect, currentHref }: TocDrawerProps) => {
+  const { t } = useTranslation();
+  // A callback ref rather than an effect keyed on `open`: a temporary `Drawer`
+  // renders nothing while closed and MUI's `Portal` returns null on its first
+  // render, so such an effect fires in a commit where the list does not exist.
+  const currentRef = useCallback((node: HTMLDivElement | null) => {
+    node?.scrollIntoView({ block: 'center' });
+  }, []);
+
+  return (
+    <Drawer
+      anchor="left"
+      open={open}
+      onClose={onClose}
+      slotProps={{ paper: { 'aria-label': t('reader.shared.contents') } }}
+    >
+      <Box
+        sx={{ width: { xs: 280, sm: 340 } }}
+        role="navigation"
+        aria-label={t('reader.tocDrawer.navigationLabel')}
+      >
+        <Stack
+          direction="row"
+          sx={{ alignItems: 'center', justifyContent: 'space-between', p: 2, pb: 1 }}
+        >
+          <SectionTitle gutterBottom={false}>{t('reader.shared.contents')}</SectionTitle>
+          <IconButton onClick={onClose} aria-label={t('reader.tocDrawer.close')} size="small">
+            <CloseIcon sx={{ fontSize: ICON_SIZE.ui }} />
+          </IconButton>
+        </Stack>
+        {toc.length === 0 ? (
+          <Box sx={{ px: 2, pb: 2 }}>
+            <EmptyStateText>{t('reader.tocDrawer.empty')}</EmptyStateText>
+          </Box>
+        ) : (
+          <List sx={{ pb: 2 }}>
+            <TocEntries
+              entries={toc}
+              depth={0}
+              onSelect={onSelect}
+              currentHref={currentHref}
+              currentRef={currentRef}
+            />
+          </List>
+        )}
+      </Box>
+    </Drawer>
+  );
+};

@@ -1,6 +1,6 @@
 {
   "name": "crossbill",
-  "version": "0.29.0",
+  "version": "0.33.2",
   "description": "Crossbill - KOReader highlights sync",
   "private": true,
   "workspaces": [
@@ -13,7 +13,7 @@
   },
   "devDependencies": {
     "husky": "^9.1.7",
-    "lint-staged": "^17.2.0",
+    "lint-staged": "^17.5.1",
     "typescript": "~6.0.3"
   },
   "lint-staged": {

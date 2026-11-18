@@ -1,0 +1,233 @@
+import { ChoiceSection } from '@/components/inputs/ChoiceSection.tsx';
+import {
+  READER_ALIGNMENTS,
+  READER_COLUMNS,
+  READER_HYPHENATIONS,
+  READER_PAGE_COLORS,
+  READER_SPACINGS,
+  READER_TYPEFACES,
+  readerAlignmentLabels,
+  readerColumnLabels,
+  readerHyphenationLabels,
+  readerPageColorLabels,
+  readerSpacingLabels,
+  readerTypefaceLabels,
+  type ReaderPreferences,
+} from '@/components/reader/preferences/readerPreferences.ts';
+import { SectionTitle } from '@/components/typography/SectionTitle.tsx';
+import { LargerTextIcon, SmallerTextIcon } from '@/theme/Icons.tsx';
+import { ICON_SIZE } from '@/theme/iconSizes.ts';
+import {
+  Box,
+  IconButton,
+  InputAdornment,
+  MenuItem,
+  Popover,
+  Stack,
+  TextField,
+} from '@mui/material';
+import { useId, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+
+const FONT_SIZE_STEP = 0.25;
+
+const asPercent = (fontSize: number) => String(Math.round(fontSize * 100));
+
+// A size clamped to the range, or typed, need not sit on a step. Carrying that
+// offset forward would put the size the book opened at out of the buttons' reach.
+const steppedFrom = (fontSize: number, direction: 1 | -1) => {
+  const steps = fontSize / FONT_SIZE_STEP;
+  return (direction === 1 ? Math.floor(steps) + 1 : Math.ceil(steps) - 1) * FONT_SIZE_STEP;
+};
+
+const clamped = (fontSize: number, [min, max]: [number, number]) =>
+  Math.min(Math.max(fontSize, min), max);
+
+interface FontSizeSectionProps {
+  range: [number, number];
+  value: number;
+  onChange: (fontSize: number) => void;
+}
+
+const FontSizeSection = ({ range, value, onChange }: FontSizeSectionProps) => {
+  const { t } = useTranslation();
+  const [typed, setTyped] = useState(asPercent(value));
+  const apply = (fontSize: number) => {
+    setTyped(asPercent(fontSize));
+    // Enter and then a blur commit the same size twice, and the engine reflows
+    // the book on every appearance it is handed.
+    if (asPercent(fontSize) !== asPercent(value)) onChange(fontSize);
+  };
+  // On blur and Enter rather than per keystroke: "1" on the way to "150" is a
+  // size of its own, and each one would reach the engine.
+  const commit = () => {
+    const percent = Number(typed);
+    if (typed.trim() === '' || !Number.isFinite(percent)) {
+      setTyped(asPercent(value));
+      return;
+    }
+    apply(clamped(Math.round(percent) / 100, range));
+  };
+
+  const step = (direction: 1 | -1) => apply(clamped(steppedFrom(value, direction), range));
+
+  return (
+    <Box>
+      <SectionTitle>{t('reader.preferences.fontSize.heading')}</SectionTitle>
+      <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+        <IconButton
+          aria-label={t('reader.preferences.fontSize.smaller')}
+          disabled={value <= range[0]}
+          onClick={() => step(-1)}
+        >
+          <SmallerTextIcon sx={{ fontSize: ICON_SIZE.ui }} />
+        </IconButton>
+        <TextField
+          size="small"
+          value={typed}
+          onChange={(event) => setTyped(event.target.value)}
+          onBlur={commit}
+          // The arrows a reader reaches for in a number field. They cannot turn
+          // the page: Readium suppresses its page turns while an input has focus.
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') commit();
+            if (event.key === 'ArrowUp') step(1);
+            if (event.key === 'ArrowDown') step(-1);
+          }}
+          slotProps={{
+            htmlInput: {
+              'aria-label': t('reader.preferences.fontSize.inputLabel'),
+              inputMode: 'numeric',
+            },
+            input: { endAdornment: <InputAdornment position="end">%</InputAdornment> },
+          }}
+          sx={{ flex: 1 }}
+        />
+        <IconButton
+          aria-label={t('reader.preferences.fontSize.larger')}
+          disabled={value >= range[1]}
+          onClick={() => step(1)}
+        >
+          <LargerTextIcon sx={{ fontSize: ICON_SIZE.ui }} />
+        </IconButton>
+      </Stack>
+    </Box>
+  );
+};
+
+interface TypefaceSectionProps {
+  value: ReaderPreferences['typeface'];
+  onChange: (typeface: ReaderPreferences['typeface']) => void;
+}
+
+// A menu rather than a row of buttons: five names do not fit across the popover.
+const TypefaceSection = ({ value, onChange }: TypefaceSectionProps) => {
+  const { t } = useTranslation();
+  const headingId = useId();
+  const labels = readerTypefaceLabels();
+
+  return (
+    <Box>
+      <SectionTitle id={headingId}>{t('reader.preferences.typeface.heading')}</SectionTitle>
+      <TextField
+        select
+        fullWidth
+        size="small"
+        value={value}
+        onChange={(event) => onChange(event.target.value as ReaderPreferences['typeface'])}
+        slotProps={{ select: { labelId: headingId } }}
+      >
+        {READER_TYPEFACES.map((typeface) => (
+          <MenuItem key={typeface} value={typeface}>
+            {labels[typeface]}
+          </MenuItem>
+        ))}
+      </TextField>
+    </Box>
+  );
+};
+
+interface ReaderSettingsProps {
+  anchorEl: Element | null;
+  onClose: () => void;
+  preferences: ReaderPreferences;
+  onChange: (preferences: ReaderPreferences) => void;
+  fontSizeRange: [number, number];
+}
+
+/** What the page looks like: text size and typeface, colour, how the lines are set and broken, and in how many columns. */
+export const ReaderSettings = ({
+  anchorEl,
+  onClose,
+  preferences,
+  onChange,
+  fontSizeRange,
+}: ReaderSettingsProps) => {
+  const { t } = useTranslation();
+
+  return (
+    <Popover
+      open={anchorEl !== null}
+      anchorEl={anchorEl}
+      onClose={onClose}
+      anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+      // Readium suppresses a page turn while an interactive element has focus, and
+      // `role=dialog` is what makes this paper — which holds it — count as one.
+      slotProps={{
+        paper: {
+          role: 'dialog',
+          'aria-label': t('reader.shared.appearance'),
+          sx: { p: 2.5, width: 320 },
+        },
+      }}
+    >
+      <Stack spacing={2}>
+        <FontSizeSection
+          range={fontSizeRange}
+          value={preferences.fontSize}
+          onChange={(fontSize) => onChange({ ...preferences, fontSize })}
+        />
+        <TypefaceSection
+          value={preferences.typeface}
+          onChange={(typeface) => onChange({ ...preferences, typeface })}
+        />
+        <ChoiceSection
+          heading={t('reader.preferences.alignment.heading')}
+          options={READER_ALIGNMENTS}
+          labels={readerAlignmentLabels()}
+          value={preferences.alignment}
+          onSelect={(alignment) => onChange({ ...preferences, alignment })}
+        />
+        <ChoiceSection
+          heading={t('reader.preferences.hyphenation.heading')}
+          options={READER_HYPHENATIONS}
+          labels={readerHyphenationLabels()}
+          value={preferences.hyphenation}
+          onSelect={(hyphenation) => onChange({ ...preferences, hyphenation })}
+        />
+        <ChoiceSection
+          heading={t('reader.preferences.spacing.heading')}
+          options={READER_SPACINGS}
+          labels={readerSpacingLabels()}
+          value={preferences.spacing}
+          onSelect={(spacing) => onChange({ ...preferences, spacing })}
+        />
+        <ChoiceSection
+          heading={t('reader.preferences.columns.heading')}
+          options={READER_COLUMNS}
+          labels={readerColumnLabels()}
+          value={preferences.columns}
+          onSelect={(columns) => onChange({ ...preferences, columns })}
+        />
+        <ChoiceSection
+          heading={t('reader.preferences.pageColor.heading')}
+          options={READER_PAGE_COLORS}
+          labels={readerPageColorLabels()}
+          value={preferences.pageColor}
+          onSelect={(pageColor) => onChange({ ...preferences, pageColor })}
+        />
+      </Stack>
+    </Popover>
+  );
+};

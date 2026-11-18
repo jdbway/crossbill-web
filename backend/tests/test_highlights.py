@@ -1,5 +1,7 @@
 """Tests for highlights API endpoints."""
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -7,7 +9,7 @@ from typing import Any
 import pytest
 from fastapi import status
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import Connection, event, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src import models
@@ -23,7 +25,7 @@ from tests.conftest import (
 async def resync_edited_highlight(
     plugin_client: AsyncClient,
     db_session: AsyncSession,
-    create_book_via_api: CreateBookFunc,
+    create_book: CreateBookFunc,
     client_book_id: str,
     first: dict[str, Any],
     edited: dict[str, Any],
@@ -32,7 +34,7 @@ async def resync_edited_highlight(
 
     Returns the stored row, which the second upload skipped as a duplicate.
     """
-    await create_book_via_api({"client_book_id": client_book_id, "title": client_book_id})
+    await create_book({"client_book_id": client_book_id, "title": client_book_id})
 
     created = await plugin_client.post(
         "/api/v1/highlights/sync",
@@ -74,6 +76,43 @@ async def upload_then_delete_highlight(
     assert deletion.json()["deleted_count"] == 1
 
 
+@contextmanager
+def inserting_the_style_after_its_lookup(
+    db_session: AsyncSession, color: str | None, drawer: str | None
+) -> Iterator[None]:
+    """Play a concurrent request that inserts the style `find_or_create` just missed."""
+    raced = False
+
+    def insert_after_lookup(
+        conn: Connection,
+        _cursor: object,
+        statement: str,
+        parameters: tuple[object, ...],
+        *_: object,
+    ) -> None:
+        nonlocal raced
+        if raced or not statement.startswith("SELECT") or "device_style" not in statement:
+            return
+        if "FROM highlight_styles" not in statement or "WHERE" not in statement:
+            return
+        raced = True
+        user_id, book_id = parameters[0], parameters[1]
+        conn.exec_driver_sql(
+            "INSERT INTO highlight_styles"
+            " (user_id, book_id, device_color, device_style, created_at, updated_at)"
+            " VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+            (user_id, book_id, color, drawer),
+        )
+
+    engine = db_session.get_bind()
+    event.listen(engine, "after_cursor_execute", insert_after_lookup)
+    try:
+        yield
+    finally:
+        event.remove(engine, "after_cursor_execute", insert_after_lookup)
+    assert raced
+
+
 class TestHighlightsUpload:
     """Test suite for highlights upload endpoint."""
 
@@ -81,11 +120,10 @@ class TestHighlightsUpload:
         self,
         plugin_client: AsyncClient,
         db_session: AsyncSession,
-        create_book_via_api: CreateBookFunc,
+        create_book: CreateBookFunc,
     ) -> None:
         """Test successful upload of highlights."""
-        # Create the book via the fixture
-        await create_book_via_api(
+        book = await create_book(
             {
                 "client_book_id": "test-client-book-id",
                 "title": "Test Book",
@@ -123,16 +161,6 @@ class TestHighlightsUpload:
         assert "book_id" in data
         assert "Successfully synced highlights" in data["message"]
 
-        # Verify book was created in database
-        result = await db_session.execute(
-            select(models.Book).filter_by(title="Test Book", author="Test Author")
-        )
-        book = result.scalar_one_or_none()
-        assert book is not None
-        assert book.title == "Test Book"
-        assert book.author == "Test Author"
-        assert book.isbn == "1234567890"
-
         # Verify highlights were created
         result = await db_session.execute(select(models.Highlight).filter_by(book_id=book.id))
         highlights = result.scalars().all()
@@ -151,11 +179,10 @@ class TestHighlightsUpload:
         self,
         plugin_client: AsyncClient,
         db_session: AsyncSession,
-        create_book_via_api: CreateBookFunc,
+        create_book: CreateBookFunc,
     ) -> None:
         """Test uploading highlights with start_xpoint and end_xpoint fields."""
-        # Create the book
-        await create_book_via_api(
+        book = await create_book(
             {
                 "client_book_id": "test-client-book-xpoints",
                 "title": "Test Book With Xpoints",
@@ -186,28 +213,16 @@ class TestHighlightsUpload:
 
         response = await plugin_client.post("/api/v1/highlights/sync", json=payload)
 
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        assert data["success"] is True
-        assert data["highlights_created"] == 2
-
-        # Verify xpoints were stored in database
-        result = await db_session.execute(
-            select(models.Book).filter_by(title="Test Book With Xpoints", author="Test Author")
-        )
-        book = result.scalar_one_or_none()
-        assert book is not None
-
+        assert response.json()["highlights_created"] == 2
         result = await db_session.execute(
             select(models.Highlight).filter_by(book_id=book.id).order_by(models.Highlight.page)
         )
         highlights = result.scalars().all()
         assert len(highlights) == 2
 
-        # First highlight should have xpoints
-        # Note: XPoint value object normalizes text()[1].0 (defaults) to just xpath
-        assert highlights[0].start_xpoint == "/body/DocFragment[1]/body/div[1]/p[5]"
-        assert highlights[0].end_xpoint == "/body/DocFragment[1]/body/div[1]/p[5]/text().42"
+        # First highlight should have xpoints, stored as the device spelt them
+        assert highlights[0].start_xpoint == "/body/div[1]/p[5]/text()[1].0"
+        assert highlights[0].end_xpoint == "/body/div[1]/p[5]/text()[1].42"
 
         # Second highlight should have null xpoints
         assert highlights[1].start_xpoint is None
@@ -217,10 +232,10 @@ class TestHighlightsUpload:
         self,
         plugin_client: AsyncClient,
         db_session: AsyncSession,
-        create_book_via_api: CreateBookFunc,
+        create_book: CreateBookFunc,
     ) -> None:
         """The e-reader's own datetime and note are stored, not replaced by server values."""
-        await create_book_via_api(
+        await create_book(
             {
                 "client_book_id": "test-client-book-device-fields",
                 "title": "Device Fields Book",
@@ -317,10 +332,10 @@ class TestHighlightsUpload:
         self,
         plugin_client: AsyncClient,
         db_session: AsyncSession,
-        create_book_via_api: CreateBookFunc,
+        create_book: CreateBookFunc,
     ) -> None:
         """Older plugins send no device_id; the highlight simply has no origin."""
-        await create_book_via_api(
+        await create_book(
             {
                 "client_book_id": "test-client-book-no-device",
                 "title": "No Device Book",
@@ -349,7 +364,7 @@ class TestHighlightsUpload:
         self,
         plugin_client: AsyncClient,
         db_session: AsyncSession,
-        create_book_via_api: CreateBookFunc,
+        create_book: CreateBookFunc,
     ) -> None:
         """The highlight itself is still skipped, but a later device edit lands."""
         highlight = {"text": "Same passage", "datetime": "2019-06-01 08:15:30"}
@@ -357,7 +372,7 @@ class TestHighlightsUpload:
         stored = await resync_edited_highlight(
             plugin_client,
             db_session,
-            create_book_via_api,
+            create_book,
             "test-client-book-note-rewrite",
             {**highlight, "note": "first note"},
             {**highlight, "note": "edited note", "datetime_updated": "2019-06-02 09:00:00"},
@@ -370,7 +385,7 @@ class TestHighlightsUpload:
         self,
         plugin_client: AsyncClient,
         db_session: AsyncSession,
-        create_book_via_api: CreateBookFunc,
+        create_book: CreateBookFunc,
     ) -> None:
         """A device syncing its stale copy must not undo a newer edit from elsewhere."""
         highlight = {"text": "Passage edited elsewhere", "datetime": "2019-06-01 08:15:30"}
@@ -378,7 +393,7 @@ class TestHighlightsUpload:
         stored = await resync_edited_highlight(
             plugin_client,
             db_session,
-            create_book_via_api,
+            create_book,
             "test-client-book-note-stale",
             {**highlight, "note": "newer note", "datetime_updated": "2019-06-05 10:00:00"},
             {**highlight, "note": "stale note", "datetime_updated": "2019-06-02 09:00:00"},
@@ -391,7 +406,7 @@ class TestHighlightsUpload:
         self,
         plugin_client: AsyncClient,
         db_session: AsyncSession,
-        create_book_via_api: CreateBookFunc,
+        create_book: CreateBookFunc,
     ) -> None:
         """A row that never received a device edit has nothing to protect.
 
@@ -401,7 +416,7 @@ class TestHighlightsUpload:
         stored = await resync_edited_highlight(
             plugin_client,
             db_session,
-            create_book_via_api,
+            create_book,
             "test-client-book-first-edit",
             {"text": "Noted before first upload", "datetime": "2025-11-17 20:21:54"},
             {
@@ -419,7 +434,7 @@ class TestHighlightsUpload:
         self,
         plugin_client: AsyncClient,
         db_session: AsyncSession,
-        create_book_via_api: CreateBookFunc,
+        create_book: CreateBookFunc,
     ) -> None:
         """Equal timestamps are not newer, so the server's copy stands."""
         highlight = {
@@ -431,7 +446,7 @@ class TestHighlightsUpload:
         stored = await resync_edited_highlight(
             plugin_client,
             db_session,
-            create_book_via_api,
+            create_book,
             "test-client-book-note-tie",
             {**highlight, "note": "note on the server"},
             {**highlight, "note": "note from the device"},
@@ -443,13 +458,13 @@ class TestHighlightsUpload:
         self,
         plugin_client: AsyncClient,
         db_session: AsyncSession,
-        create_book_via_api: CreateBookFunc,
+        create_book: CreateBookFunc,
     ) -> None:
         """A highlight never edited on the device carries only its creation time."""
         stored = await resync_edited_highlight(
             plugin_client,
             db_session,
-            create_book_via_api,
+            create_book,
             "test-client-book-note-no-edit-time",
             {
                 "text": "Passage from an older sidecar",
@@ -470,7 +485,7 @@ class TestHighlightsUpload:
         self,
         plugin_client: AsyncClient,
         db_session: AsyncSession,
-        create_book_via_api: CreateBookFunc,
+        create_book: CreateBookFunc,
     ) -> None:
         """Recolouring a highlight on the device moves it to the new style."""
         highlight = {"text": "Passage recoloured", "datetime": "2019-06-01 08:15:30"}
@@ -478,7 +493,7 @@ class TestHighlightsUpload:
         stored = await resync_edited_highlight(
             plugin_client,
             db_session,
-            create_book_via_api,
+            create_book,
             "test-client-book-style-change",
             {**highlight, "color": "yellow", "drawer": "lighten"},
             {
@@ -496,11 +511,49 @@ class TestHighlightsUpload:
         assert style.device_color == "red"
         assert style.device_style == "underscore"
 
+    @pytest.mark.parametrize(
+        ("color", "drawer"), [("yellow", "lighten"), (None, None)], ids=["styled", "unstyled"]
+    )
+    async def test_upload_racing_another_for_a_new_style_shares_its_row(
+        self,
+        plugin_client: AsyncClient,
+        db_session: AsyncSession,
+        create_book: CreateBookFunc,
+        color: str | None,
+        drawer: str | None,
+    ) -> None:
+        """A style row another request inserts between lookup and insert is reused."""
+        await create_book({"client_book_id": "racing-book", "title": "Racing"})
+
+        with inserting_the_style_after_its_lookup(db_session, color, drawer):
+            response = await plugin_client.post(
+                "/api/v1/highlights/sync",
+                json={
+                    "client_book_id": "racing-book",
+                    "highlights": [
+                        {
+                            "text": "Raced passage",
+                            "datetime": "2019-06-01 08:15:30",
+                            "color": color,
+                            "drawer": drawer,
+                        }
+                    ],
+                },
+            )
+
+        assert response.json()["highlights_created"] == 1
+        styles = (await db_session.execute(select(models.HighlightStyle))).scalars().all()
+        assert [(s.device_color, s.device_style) for s in styles] == [(color, drawer)]
+        highlight = (
+            await db_session.execute(select(models.Highlight).filter_by(text="Raced passage"))
+        ).scalar_one()
+        assert highlight.highlight_style_id == styles[0].id
+
     async def test_reupload_without_note_clears_stored_note(
         self,
         plugin_client: AsyncClient,
         db_session: AsyncSession,
-        create_book_via_api: CreateBookFunc,
+        create_book: CreateBookFunc,
     ) -> None:
         """Deleting the note on the device clears it on the server too."""
         highlight = {"text": "Passage once annotated", "datetime": "2019-06-01 08:15:30"}
@@ -508,7 +561,7 @@ class TestHighlightsUpload:
         stored = await resync_edited_highlight(
             plugin_client,
             db_session,
-            create_book_via_api,
+            create_book,
             "test-client-book-note-clearing",
             {**highlight, "note": "note to be removed"},
             {**highlight, "datetime_updated": "2019-06-02 09:00:00"},
@@ -520,10 +573,10 @@ class TestHighlightsUpload:
         self,
         plugin_client: AsyncClient,
         db_session: AsyncSession,
-        create_book_via_api: CreateBookFunc,
+        create_book: CreateBookFunc,
     ) -> None:
         """A deleted highlight stays deleted and keeps its note; it is not revived."""
-        book = await create_book_via_api(
+        book = await create_book(
             {
                 "client_book_id": "test-client-book-note-deleted",
                 "title": "Deleted Note Book",
@@ -536,7 +589,7 @@ class TestHighlightsUpload:
             plugin_client,
             db_session,
             "test-client-book-note-deleted",
-            book.book_id,
+            book.id,
             {**highlight, "note": "note on a deleted highlight"},
         )
 
@@ -567,10 +620,10 @@ class TestHighlightsUpload:
         self,
         plugin_client: AsyncClient,
         db_session: AsyncSession,
-        create_book_via_api: CreateBookFunc,
+        create_book: CreateBookFunc,
     ) -> None:
         """A highlight stored before the device sent xpoints gets them from a re-upload."""
-        await create_book_via_api(
+        await create_book(
             {
                 "client_book_id": "test-client-book-xpoint-backfill",
                 "title": "Xpoint Backfill Book",
@@ -608,17 +661,17 @@ class TestHighlightsUpload:
             select(models.Highlight).filter_by(text="Passage without xpoints")
         )
         stored = result.scalar_one()
-        assert stored.start_xpoint == "/body/DocFragment[2]/body/p[1]"
+        assert stored.start_xpoint == "/body/DocFragment[2]/body/p[1]/text().0"
         assert stored.end_xpoint == "/body/DocFragment[2]/body/p[1]/text().13"
 
     async def test_reupload_does_not_overwrite_existing_xpoints(
         self,
         plugin_client: AsyncClient,
         db_session: AsyncSession,
-        create_book_via_api: CreateBookFunc,
+        create_book: CreateBookFunc,
     ) -> None:
         """Xpoints already stored stay put; only a missing pair is filled in."""
-        await create_book_via_api(
+        await create_book(
             {
                 "client_book_id": "test-client-book-xpoint-keeping",
                 "title": "Xpoint Keeping Book",
@@ -661,28 +714,21 @@ class TestHighlightsUpload:
             select(models.Highlight).filter_by(text="Passage anchored once")
         )
         stored = result.scalar_one()
-        assert stored.start_xpoint == "/body/DocFragment[2]/body/p[1]"
+        assert stored.start_xpoint == "/body/DocFragment[2]/body/p[1]/text().0"
         assert stored.end_xpoint == "/body/DocFragment[2]/body/p[1]/text().13"
 
     async def test_reupload_with_xpoints_resolves_position_when_epub_present(
         self,
         plugin_client: AsyncClient,
         db_session: AsyncSession,
-        create_book_via_api: CreateBookFunc,
         epub_bytes: bytes,
         storage_dir: Path,
     ) -> None:
         """The backfilled xpoints are resolved against the book's EPUB into a position."""
-        await create_book_via_api(
-            {
-                "client_book_id": "test-client-book-position-backfill",
-                "title": "Position Backfill Book",
-                "author": "Test Author",
-            }
-        )
         epub_upload = await plugin_client.post(
-            "/api/v1/ereader/books/test-client-book-position-backfill/epub",
+            "/api/v1/ereader/books",
             files={"epub": ("book.epub", epub_bytes, "application/epub+zip")},
+            data={"client_book_id": "test-client-book-position-backfill"},
         )
         assert epub_upload.status_code == status.HTTP_200_OK
 
@@ -722,10 +768,10 @@ class TestHighlightsUpload:
         self,
         plugin_client: AsyncClient,
         db_session: AsyncSession,
-        create_book_via_api: CreateBookFunc,
+        create_book: CreateBookFunc,
     ) -> None:
         """A deleted highlight is not given xpoints: it must stay out of the book."""
-        book = await create_book_via_api(
+        book = await create_book(
             {
                 "client_book_id": "test-client-book-xpoint-deleted",
                 "title": "Deleted Xpoint Book",
@@ -735,7 +781,7 @@ class TestHighlightsUpload:
         highlight = {"text": "Deleted unplaced passage", "datetime": "2019-06-01 08:15:30"}
 
         await upload_then_delete_highlight(
-            plugin_client, db_session, "test-client-book-xpoint-deleted", book.book_id, highlight
+            plugin_client, db_session, "test-client-book-xpoint-deleted", book.id, highlight
         )
 
         second = await plugin_client.post(
@@ -765,11 +811,11 @@ class TestHighlightsUpload:
         self,
         plugin_client: AsyncClient,
         db_session: AsyncSession,
-        create_book_via_api: CreateBookFunc,
+        create_book: CreateBookFunc,
     ) -> None:
         """Test that duplicate highlights are properly skipped."""
         # Create the book
-        await create_book_via_api(
+        await create_book(
             {
                 "client_book_id": "test-client-duplicate-book",
                 "title": "Duplicate Test Book",
@@ -813,11 +859,11 @@ class TestHighlightsUpload:
         assert len(highlights) == 1
 
     async def test_upload_partial_duplicates(
-        self, plugin_client: AsyncClient, create_book_via_api: CreateBookFunc
+        self, plugin_client: AsyncClient, create_book: CreateBookFunc
     ) -> None:
         """Test uploading mix of new and duplicate highlights."""
         # Create the book
-        await create_book_via_api(
+        await create_book(
             {
                 "client_book_id": "test-client-partial-dup",
                 "title": "Partial Duplicate Test Book",
@@ -866,11 +912,11 @@ class TestHighlightsUpload:
         assert data2["highlights_skipped"] == 1
 
     async def test_upload_empty_highlights_list(
-        self, plugin_client: AsyncClient, create_book_via_api: CreateBookFunc
+        self, plugin_client: AsyncClient, create_book: CreateBookFunc
     ) -> None:
         """Test uploading with empty highlights list."""
         # Create the book
-        await create_book_via_api(
+        await create_book(
             {
                 "client_book_id": "test-client-empty",
                 "title": "Empty Highlights Book",
@@ -892,7 +938,7 @@ class TestHighlightsUpload:
         assert data["highlights_skipped"] == 0
 
     async def test_upload_same_text_different_datetime_is_duplicate(
-        self, plugin_client: AsyncClient, create_book_via_api: CreateBookFunc
+        self, plugin_client: AsyncClient, create_book: CreateBookFunc
     ) -> None:
         """Test that same text at different times is considered duplicate (hash-based dedup).
 
@@ -900,7 +946,7 @@ class TestHighlightsUpload:
         Datetime is NOT part of the hash, so same text in the same book is a duplicate.
         """
         # Create the book
-        await create_book_via_api(
+        await create_book(
             {
                 "client_book_id": "test-client-same-text",
                 "title": "Same Text Test Book",
@@ -931,7 +977,7 @@ class TestHighlightsUpload:
         assert data["highlights_skipped"] == 1
 
     async def test_upload_same_text_different_book_not_duplicate(
-        self, plugin_client: AsyncClient, create_book_via_api: CreateBookFunc
+        self, plugin_client: AsyncClient, create_book: CreateBookFunc
     ) -> None:
         """Test that same text in different books is treated as duplicate.
 
@@ -940,7 +986,7 @@ class TestHighlightsUpload:
         This is the domain-centric approach that prioritizes text content.
         """
         # Create the first book
-        await create_book_via_api(
+        await create_book(
             {
                 "client_book_id": "test-client-first-book",
                 "title": "First Book",
@@ -964,7 +1010,7 @@ class TestHighlightsUpload:
         assert response1.json()["highlights_created"] == 1
 
         # Create the second book
-        await create_book_via_api(
+        await create_book(
             {
                 "client_book_id": "test-client-second-book",
                 "title": "Second Book",

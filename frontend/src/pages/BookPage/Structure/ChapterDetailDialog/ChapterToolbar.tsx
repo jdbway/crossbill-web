@@ -1,30 +1,41 @@
 import { useGenerateChapterDigest } from '@/api/generated/digest/digest';
 import { AIActionButton } from '@/components/buttons/AIActionButton.tsx';
 import { IconButtonWithTooltip } from '@/components/buttons/IconButtonWithTooltip.tsx';
+import { OpenInReaderButton } from '@/components/buttons/OpenInReaderButton.tsx';
 import { ConfirmationDialog } from '@/components/dialogs/ConfirmationDialog.tsx';
 import { DialogToolbar } from '@/components/dialogs/DialogToolbar.tsx';
 import { AIFeature } from '@/components/features/AIFeature.tsx';
 import { useMutationErrorHandler } from '@/hooks/useMutationErrorHandler.ts';
 import { useCacheEvents } from '@/lib/cacheEvents.ts';
-import { AIIcon, LinkIcon, RegenerateIcon } from '@/theme/Icons.tsx';
+import { AIIcon, ChatIcon, LinkIcon, QuizIcon, RegenerateIcon } from '@/theme/Icons.tsx';
 import { copyUrlWithSearchParam } from '@/utils/clipboard.ts';
 import { CircularProgress } from '@mui/material';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 interface ChapterToolbarProps {
   chapterId: number;
   bookId: number;
   hasSummary: boolean;
+  onStartQuiz: () => void;
+  onStartChat: () => void;
 }
 
-export const ChapterToolbar = ({ chapterId, bookId, hasSummary }: ChapterToolbarProps) => {
+export const ChapterToolbar = ({
+  chapterId,
+  bookId,
+  hasSummary,
+  onStartQuiz,
+  onStartChat,
+}: ChapterToolbarProps) => {
+  const { t } = useTranslation();
   const cache = useCacheEvents();
   const mutationErrorHandler = useMutationErrorHandler();
   const [confirmationOpen, setConfirmationOpen] = useState(false);
 
   const { mutate: generate, isPending } = useGenerateChapterDigest({
     mutation: {
-      onError: mutationErrorHandler('generate summary'),
+      onError: mutationErrorHandler(t('structure.chapterDetail.toolbar.generateSummaryFailed')),
       onSuccess: () => {
         cache.digestChanged(bookId);
       },
@@ -44,7 +55,9 @@ export const ChapterToolbar = ({ chapterId, bookId, hasSummary }: ChapterToolbar
     generate({ chapterId });
   };
 
-  const title = hasSummary ? 'Regenerate summary and questions' : 'Generate summary';
+  const title = hasSummary
+    ? t('structure.chapterDetail.toolbar.regenerateSummary')
+    : t('structure.chapterDetail.toolbar.generateSummary');
   const icon = hasSummary ? <RegenerateIcon /> : <AIIcon />;
 
   // A link that works from any context: `chapterId` is only a validated search
@@ -57,17 +70,30 @@ export const ChapterToolbar = ({ chapterId, bookId, hasSummary }: ChapterToolbar
     );
   };
 
-  // The toolbar itself is not an AI feature — only the generate button is, and
+  // The toolbar itself is not an AI feature — only the AI buttons are, and
   // gating the whole row would take copy-link away with it.
   return (
     <>
       <DialogToolbar>
+        <OpenInReaderButton bookId={bookId} chapterId={chapterId} />
         <IconButtonWithTooltip
-          label="Copy link to chapter"
+          label={t('structure.chapterDetail.toolbar.copyLink')}
           onClick={() => void handleCopyLink()}
           icon={<LinkIcon />}
         />
         <AIFeature>
+          <AIActionButton
+            text={t('structure.chapterDetail.toolbar.quizMe')}
+            onClick={onStartQuiz}
+            iconOnly
+            icon={<QuizIcon />}
+          />
+          <AIActionButton
+            text={t('structure.chapterDetail.toolbar.chatAboutChapter')}
+            onClick={onStartChat}
+            iconOnly
+            icon={<ChatIcon />}
+          />
           {isPending ? (
             <CircularProgress size={24} sx={{ m: '4px' }} />
           ) : (
@@ -80,9 +106,9 @@ export const ChapterToolbar = ({ chapterId, bookId, hasSummary }: ChapterToolbar
         open={confirmationOpen}
         onClose={() => setConfirmationOpen(false)}
         onConfirm={handleConfirmRegenerate}
-        confirmText="Regenerate"
+        confirmText={t('structure.chapterDetail.toolbar.regenerateConfirm.confirm')}
         confirmColor="error"
-        message="Regenerating this chapter replaces its summary, key points, and questions. Any saved answers to the current questions will be deleted."
+        message={t('structure.chapterDetail.toolbar.regenerateConfirm.message')}
       />
     </>
   );

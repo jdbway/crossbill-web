@@ -1,11 +1,14 @@
 import type {
+  CreatedHighlightResponse,
+  HighlightLocatorResponse,
   PositionList,
   ReadingPosition,
   ReadingPositionUpdate,
   ResumePositionResponse,
+  SelectionHighlightCreate,
   WebPublicationManifest,
 } from '@/api/generated/model';
-import { http, HttpResponse } from 'msw';
+import { delay, http, HttpResponse } from 'msw';
 import { aManifest, aPositionList, nowhereToResume } from '../fixtures/publication';
 
 const MANIFEST_PATH = '/api/v1/readium/books/:bookId/manifest.json';
@@ -13,14 +16,26 @@ const POSITIONS_PATH = '/api/v1/readium/books/:bookId/positions.json';
 const SESSION_PATH = '/api/v1/readium/books/:bookId/session';
 const RESOURCE_PATH = '/api/v1/readium/books/:bookId/resources/*';
 const POSITION_PATH = '/api/v1/readium/books/:bookId/reading-position';
+const HIGHLIGHT_LOCATORS_PATH = '/api/v1/books/:bookId/highlight-locators';
+const HIGHLIGHT_LOCATOR_PATH = '/api/v1/highlights/:highlightId/locator';
+const HIGHLIGHTS_PATH = '/api/v1/books/:bookId/highlights';
+
+/** An anchor half-way through chapter two, for a contents entry to start a subchapter at. */
+export const CHAPTER_TWO_SECOND_HALF = 'second-half';
+
+const PARAGRAPH = 'Attention is the rarest and purest form of generosity.';
 
 /** A chapter as an EPUB actually ships one: XHTML, with its own namespace. */
-const chapterDocument = (title: string, paragraphs = 1) =>
+const chapterDocument = (title: string, paragraphs = 1, anchorAt?: number) =>
   `<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml">
   <head><title>${title}</title></head>
-  <body><h1>${title}</h1>${'<p>Attention is the rarest and purest form of generosity.</p>'.repeat(paragraphs)}</body>
+  <body><h1>${title}</h1>${Array.from(
+    { length: paragraphs },
+    (_, index) =>
+      `<p${index === anchorAt ? ` id="${CHAPTER_TWO_SECOND_HALF}"` : ''}>${PARAGRAPH}</p>`
+  ).join('')}</body>
 </html>`;
 
 /**
@@ -46,6 +61,23 @@ const hostileChapter = () =>
   </body>
 </html>`;
 
+/** The names of the two links in the first chapter `readiumApi({ withLinks: true })` serves. */
+export const LINK_INTO_THE_BOOK = 'the second half';
+export const LINK_OUT_OF_THE_BOOK = 'the web';
+
+/** A first chapter that links to the middle of the second, and to a page outside the book. */
+const linkingChapter = () =>
+  `<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head><title>On Attention</title></head>
+  <body>
+    <h1>On Attention</h1>
+    <p>${PARAGRAPH}</p>
+    <p>See <a href="chapter2.xhtml#${CHAPTER_TWO_SECOND_HALF}"><em>${LINK_INTO_THE_BOOK}</em></a>, or <a href="https://example.com/">${LINK_OUT_OF_THE_BOOK}</a>.</p>
+  </body>
+</html>`;
+
 /** The files `aManifest` names, keyed by the path the resource route receives. */
 const RESOURCES: Record<string, { body: string; type: string } | undefined> = {
   'OEBPS/chapter1.xhtml': { body: chapterDocument('On Attention'), type: 'application/xhtml+xml' },
@@ -53,7 +85,7 @@ const RESOURCES: Record<string, { body: string; type: string } | undefined> = {
   // part-way through a chapter rather than only at the head of one. Safe for
   // every other test because nothing here turns more than one page into it.
   'OEBPS/chapter2.xhtml': {
-    body: chapterDocument('On Memory', 240),
+    body: chapterDocument('On Memory', 240, 120),
     type: 'application/xhtml+xml',
   },
   'OEBPS/style.css': { body: 'body { margin: 0; }', type: 'text/css' },
@@ -88,6 +120,79 @@ export const readingPositionApi = (stored: ResumePositionResponse = nowhereToRes
   return { handlers, writes };
 };
 
+/**
+ * Where the book's highlights are in its EPUB. Register these after `readiumApi()`,
+ * which MSW resolves newest first.
+ */
+export const highlightLocatorsApi = (
+  items: HighlightLocatorResponse[] = [],
+  { until, onRequest }: { until?: Promise<void>; onRequest?: () => void } = {}
+) => [
+  http.get(HIGHLIGHT_LOCATORS_PATH, async () => {
+    onRequest?.();
+    await until;
+    return HttpResponse.json({ items });
+  }),
+];
+
+/**
+ * Where each of these highlights is, one at a time; any other id 404s, as a deleted
+ * highlight does. Register these after `readiumApi()`, which MSW resolves newest first.
+ */
+export const highlightLocatorApi = (
+  items: HighlightLocatorResponse[],
+  { delayMs }: { delayMs?: number } = {}
+) => [
+  http.get(HIGHLIGHT_LOCATOR_PATH, async ({ params }) => {
+    const highlightId = Number(params.highlightId);
+    if (delayMs) await delay(delayMs);
+    const item = items.find((candidate) => candidate.highlight_id === highlightId);
+    return item ? HttpResponse.json(item) : new HttpResponse(null, { status: 404 });
+  }),
+];
+
+export interface HighlightCreationAnswer {
+  status?: number;
+  id?: number;
+  delayMs?: number;
+  /** Held until this settles, for a test that says when the server answers. */
+  until?: Promise<void>;
+}
+
+/** Register these after `readiumApi()`, which MSW resolves newest first. */
+export const highlightCreationApi = (
+  answers: HighlightCreationAnswer[],
+  { onCreated }: { onCreated?: (id: number) => void } = {}
+) => {
+  const bodies: SelectionHighlightCreate[] = [];
+  const handlers = [
+    http.post(HIGHLIGHTS_PATH, async ({ request, params }) => {
+      const body = (await request.json()) as SelectionHighlightCreate;
+      const {
+        status = 201,
+        id = 400,
+        delayMs,
+        until,
+      } = answers[Math.min(bodies.length, answers.length - 1)];
+      bodies.push(body);
+      if (delayMs) await delay(delayMs);
+      await until;
+      if (status >= 400) return new HttpResponse(null, { status });
+      onCreated?.(id);
+      return HttpResponse.json(
+        {
+          id,
+          book_id: Number(params.bookId),
+          text: body.locator.text?.highlight ?? '',
+          datetime: '2026-09-15 12:00:00',
+        } satisfies CreatedHighlightResponse,
+        { status }
+      );
+    }),
+  ];
+  return { handlers, bodies };
+};
+
 interface ReadiumApiOptions {
   manifest?: WebPublicationManifest;
   positions?: PositionList;
@@ -95,6 +200,8 @@ interface ReadiumApiOptions {
   expiresIn?: number;
   /** Serve the first chapter as a book that attacks the page that opened it. */
   hostile?: boolean;
+  /** Serve the first chapter with a link into the second and one out of the book. */
+  withLinks?: boolean;
   /** Told about every request these handlers answer, for tests about what was sent. */
   onRequest?: (request: Request) => void;
 }
@@ -110,6 +217,7 @@ export const readiumApi = ({
   positions,
   expiresIn = 900,
   hostile = false,
+  withLinks = false,
   onRequest = () => {},
 }: ReadiumApiOptions = {}) => [
   http.post(SESSION_PATH, ({ request }) => {
@@ -129,12 +237,18 @@ export const readiumApi = ({
   // `readingPositionApi` is the version with a place to resume from and a
   // memory of what was written.
   ...readingPositionApi().handlers,
+  // And it asks where the book's highlights are, whether or not the test is about
+  // them; `highlightLocatorsApi` with items is the version that has some.
+  ...highlightLocatorsApi(),
+  // A link into the reader at a highlight asks where that one is; unanswered, it opens at the start.
+  ...highlightLocatorApi([]),
   http.get(RESOURCE_PATH, ({ request, params }) => {
     onRequest(request);
     const path = String(params[0]);
+    const firstChapter = hostile ? hostileChapter() : withLinks ? linkingChapter() : undefined;
     const rewritten =
-      hostile && path === 'OEBPS/chapter1.xhtml'
-        ? { body: hostileChapter(), type: 'application/xhtml+xml' }
+      firstChapter && path === 'OEBPS/chapter1.xhtml'
+        ? { body: firstChapter, type: 'application/xhtml+xml' }
         : undefined;
     const resource = rewritten ?? RESOURCES[path];
     if (!resource) return new HttpResponse(null, { status: 404 });
@@ -144,10 +258,44 @@ export const readiumApi = ({
   }),
 ];
 
+/** A promise the test settles with `release`, for a handler to hold its answer on. */
+export const aHold = () => {
+  let release = () => {};
+  const released = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return { released, release };
+};
+
+/** A session endpoint that answers only once the test releases it. */
+export const aHeldSession = () => {
+  const { released, release } = aHold();
+  const handler = http.post(SESSION_PATH, async () => {
+    await released;
+    return HttpResponse.json({ expires_in: 900 });
+  });
+  return { handler, release };
+};
+
+/** The first chapter, served only once the test releases it. Register after `readiumApi()`. */
+export const aHeldFirstChapter = () => {
+  const { released, release } = aHold();
+  let isRequested = false;
+  // Answering nothing passes the request on to the handler that serves it.
+  const handler = http.get(RESOURCE_PATH, async ({ params }) => {
+    if (String(params[0]) !== 'OEBPS/chapter1.xhtml') return;
+    isRequested = true;
+    await released;
+  });
+  return { handler, release, isRequested: () => isRequested };
+};
+
 /** A book with no EPUB: the manifest 404s, which is how the app learns there is none. */
 export const noPublication = [
   http.post(SESSION_PATH, () => HttpResponse.json({ expires_in: 900 })),
   http.get(MANIFEST_PATH, () => new HttpResponse(null, { status: 404 })),
-  // The shell asks where to resume before it learns there is nothing to open.
+  // The shell asks where to resume, and where the highlights are, before it learns
+  // there is nothing to open.
   ...readingPositionApi().handlers,
+  ...highlightLocatorsApi(),
 ];

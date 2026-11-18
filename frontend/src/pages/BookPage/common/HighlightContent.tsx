@@ -5,13 +5,25 @@ import { DateIcon, HighlightsIcon } from '@/theme/Icons.tsx';
 import { ICON_SIZE } from '@/theme/iconSizes.ts';
 import { formatDate } from '@/utils/date.ts';
 import { Box, Typography } from '@mui/material';
+import type { ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 
 interface HighlightContentProps {
   highlight: Highlight;
   onLabelClick?: (event: React.MouseEvent<HTMLElement>) => void;
+  /** Handed the element the label sits in, for anything anchored to it. */
+  labelRef?: React.RefCallback<HTMLDivElement>;
+  /** Right-aligned on the metadata line, so the actions sit with what they act on. */
+  actions?: ReactNode;
 }
 
-export const HighlightContent = ({ highlight, onLabelClick }: HighlightContentProps) => {
+export const HighlightContent = ({
+  highlight,
+  onLabelClick,
+  labelRef,
+  actions,
+}: HighlightContentProps) => {
+  const { t } = useTranslation();
   const startsWithLowercase =
     highlight.text.length > 0 &&
     highlight.text[0] === highlight.text[0].toLowerCase() &&
@@ -49,7 +61,7 @@ export const HighlightContent = ({ highlight, onLabelClick }: HighlightContentPr
       sx={{
         display: 'flex',
         flexDirection: 'column',
-        gap: 3,
+        gap: 2,
         flex: 1,
       }}
     >
@@ -67,25 +79,29 @@ export const HighlightContent = ({ highlight, onLabelClick }: HighlightContentPr
         <Box sx={{ flex: 1 }}>{renderHighlightText()}</Box>
       </Box>
 
-      {/* Metadata */}
-      <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', opacity: 0.8 }}>
-        <DateIcon
-          sx={{
-            fontSize: ICON_SIZE.inline,
-            color: 'text.secondary',
-          }}
-        />
-        <Typography
-          variant="body2"
-          sx={{
-            color: 'text.secondary',
-          }}
-        >
-          {formatDate(highlight.datetime)}
-          {highlight.page && ` • Page ${highlight.page}`}
-        </Typography>
-        <LabelIndicator label={highlight.label} onClick={onLabelClick} size="medium" />
-        <NotOnDeviceChip removed={highlight.removed_from_devices} size="medium" />
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
+        <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', opacity: 0.8 }}>
+          <DateIcon
+            sx={{
+              fontSize: ICON_SIZE.inline,
+              color: 'text.secondary',
+            }}
+          />
+          <Typography
+            variant="body2"
+            sx={{
+              color: 'text.secondary',
+            }}
+          >
+            {formatDate(highlight.datetime)}
+            {highlight.page && ` • ${t('common.labels.page', { page: highlight.page })}`}
+          </Typography>
+          <Box ref={labelRef} sx={{ display: 'flex', alignItems: 'center' }}>
+            <LabelIndicator label={highlight.label} onClick={onLabelClick} size="medium" />
+          </Box>
+          <NotOnDeviceChip removed={highlight.removed_from_devices} size="medium" />
+        </Box>
+        {actions}
       </Box>
     </Box>
   );

@@ -8,7 +8,7 @@ import {
 } from '@/pages/BookPage/Flashcards/CreateFlashcardForm.tsx';
 import { FlashcardListCard } from '@/pages/BookPage/Flashcards/FlashcardListCard.tsx';
 import { FlashcardSuggestions } from '@/pages/BookPage/Flashcards/FlashcardSuggestions.tsx';
-import { Box, Typography } from '@mui/material';
+import { Box } from '@mui/material';
 import { useState } from 'react';
 
 /**
@@ -104,16 +104,6 @@ export const FlashcardSection = ({
 
   return (
     <Box>
-      <Typography
-        variant="subtitle2"
-        gutterBottom
-        sx={{
-          color: 'text.secondary',
-        }}
-      >
-        Flashcards
-      </Typography>
-
       <FlashcardsList
         flashcardsWithContext={flashcards}
         bookId={bookId}

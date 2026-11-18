@@ -34,16 +34,40 @@ export default mergeConfig(
         '@readium/shared',
       ],
     },
+    // The extension is the tier: `.test.ts` is pure logic run in node,
+    // `.test.tsx` needs Chromium — it renders, or leans on the real DOM.
     test: {
-      include: ['src/**/*.test.tsx'],
-      setupFiles: ['./tests/setup.ts'],
-      browser: {
-        enabled: true,
-        headless: true,
-        provider: playwright(),
-        instances: [{ browser: 'chromium' }],
-        viewport: { width: 1440, height: 900 },
-      },
+      projects: [
+        {
+          extends: true,
+          test: {
+            name: 'unit',
+            environment: 'node',
+            include: ['src/**/*.test.ts'],
+          },
+        },
+        {
+          extends: true,
+          test: {
+            name: 'browser',
+            include: ['src/**/*.test.tsx'],
+            // The whole budget of a test. Lint caps a test's own timeout at
+            // 10 s, so a test can tighten this but never raise it.
+            testTimeout: 15_000,
+            setupFiles: ['./tests/setup.ts'],
+            browser: {
+              enabled: true,
+              headless: true,
+              provider: playwright(),
+              instances: [{ browser: 'chromium' }],
+              viewport: { width: 1440, height: 900 },
+              // Vitest 5 made text locators exact by default; the suite is
+              // written against the substring matching of Vitest 4.
+              locators: { exact: false },
+            },
+          },
+        },
+      ],
     },
   })
 );

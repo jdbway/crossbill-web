@@ -9,12 +9,25 @@ import { useMutationErrorHandler } from '@/hooks/useMutationErrorHandler.ts';
 import { useCacheEvents } from '@/lib/cacheEvents.ts';
 import { useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 export const useTagMutations = (bookId: number) => {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const mutationErrorHandler = useMutationErrorHandler();
   const cache = useCacheEvents();
   const [isProcessing, setIsProcessing] = useState(false);
+
+  const replaceBookTag = (tagId: number, update: (tag: TagInBook) => TagInBook) => {
+    queryClient.setQueryData(getGetBookDetailsQueryKey(bookId), (old: unknown) => {
+      if (!old || typeof old !== 'object') return old;
+      const bookData = old as { tags: TagInBook[] };
+      return {
+        ...bookData,
+        tags: bookData.tags.map((tag) => (tag.id === tagId ? update(tag) : tag)),
+      };
+    });
+  };
 
   const updateTagMutation = useUpdateTag({
     mutation: {
@@ -27,31 +40,14 @@ export const useTagMutations = (bookId: number) => {
           queryKey: getGetBookDetailsQueryKey(bookId),
         });
         const previousBook = queryClient.getQueryData(getGetBookDetailsQueryKey(bookId));
-        queryClient.setQueryData(getGetBookDetailsQueryKey(bookId), (old: unknown) => {
-          if (!old || typeof old !== 'object') return old;
-          const bookData = old as { tags: TagInBook[] };
-          return {
-            ...bookData,
-            tags: bookData.tags.map((tag: TagInBook) =>
-              tag.id === variables.tagId
-                ? { ...tag, tag_group_id: variables.data.tag_group_id }
-                : tag
-            ),
-          };
-        });
+        replaceBookTag(variables.tagId, (tag) => ({
+          ...tag,
+          tag_group_id: variables.data.tag_group_id,
+        }));
         return { previousBook };
       },
       onSuccess: (updatedTag: TagInBook) => {
-        queryClient.setQueryData(getGetBookDetailsQueryKey(bookId), (old: unknown) => {
-          if (!old || typeof old !== 'object') return old;
-          const bookData = old as { tags: TagInBook[] };
-          return {
-            ...bookData,
-            tags: bookData.tags.map((tag: TagInBook) =>
-              tag.id === updatedTag.id ? updatedTag : tag
-            ),
-          };
-        });
+        replaceBookTag(updatedTag.id, () => updatedTag);
       },
       onError: (
         error: unknown,
@@ -61,7 +57,7 @@ export const useTagMutations = (bookId: number) => {
         if (context?.previousBook) {
           queryClient.setQueryData(getGetBookDetailsQueryKey(bookId), context.previousBook);
         }
-        mutationErrorHandler('move tag')(error);
+        mutationErrorHandler(t('book.navigation.tags.errors.moveTag'))(error);
       },
     },
   });
@@ -69,14 +65,14 @@ export const useTagMutations = (bookId: number) => {
   const createOrUpdateGroupMutation = useCreateOrUpdateTagGroup({
     mutation: {
       onSuccess: () => cache.tagsChanged(bookId),
-      onError: mutationErrorHandler('save tag group'),
+      onError: mutationErrorHandler(t('book.navigation.tags.errors.saveTagGroup')),
     },
   });
 
   const deleteGroupMutation = useDeleteTagGroup({
     mutation: {
       onSuccess: () => cache.tagsChanged(bookId),
-      onError: mutationErrorHandler('delete tag group'),
+      onError: mutationErrorHandler(t('book.navigation.tags.errors.deleteTagGroup')),
     },
   });
 

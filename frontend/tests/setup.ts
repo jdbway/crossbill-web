@@ -1,14 +1,28 @@
 import { AXIOS_INSTANCE } from '@/api/axios-instance';
 import { API_BASE_URL } from '@/api/base-url';
 import { clearTokens } from '@/api/token-manager';
-import { afterAll, afterEach, beforeAll } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach } from 'vitest';
 import { cleanup } from 'vitest-browser-react';
-import { pendingQueryClients } from './harness/renderApp';
+// The one app module loaded from here: it only registers the bundled copy with
+// i18next, holds nothing a test would `vi.mock`, and every render needs it.
+import '@/i18n';
+// No app module may load from here: one loaded before a test file is out of
+// reach of that file's `vi.mock`.
+import {
+  openApiRequests,
+  startCountingForANewTest,
+  trackMswRequests,
+  trackOpenApiRequests,
+} from './harness/openRequests';
+import { pendingQueryClients } from './harness/pendingQueryClients';
 import { worker } from './msw/worker';
 
 // Relative URLs, so MSW handlers can be written against `/api/v1/...` paths.
 // Already the default; pinned here so the handlers do not depend on it.
 AXIOS_INSTANCE.defaults.baseURL = '';
+
+trackOpenApiRequests();
+trackMswRequests(worker);
 
 const unhandledRequests: string[] = [];
 
@@ -28,34 +42,44 @@ beforeAll(async () => {
     // MSW's own 'error' strategy only fails the request, which a component can
     // swallow. Recording them and failing in afterEach means a test can never
     // pass while silently talking to an endpoint nobody mocked.
-    onUnhandledRequest(request, print) {
+    onUnhandledFrame({ frame, defaults }) {
+      if (frame.protocol !== 'http') return;
+      const { request } = frame.data as { request: Request };
       const url = new URL(request.url);
       if (!url.pathname.startsWith('/api/')) return;
       unhandledRequests.push(`${request.method} ${url.pathname}`);
-      print.error();
+      defaults.error();
     },
   });
 });
 
+beforeEach(() => {
+  startCountingForANewTest();
+});
+
 /**
- * Bounded, never-throwing wait for one `QueryClient` to have nothing in
- * flight. Deliberately not `expect.poll`: a client that is *never* going to
- * settle (a genuinely stuck request) must fall through to the unmocked-request
- * check below rather than fail the teardown itself with a timeout.
+ * Bounded, never-throwing wait for the page to have no `/api/` request open
+ * and no query client with work in flight. Deliberately not `expect.poll`: a
+ * request that is *never* going to settle (a genuinely stuck one) must fall
+ * through to the unmocked-request check below rather than fail the teardown
+ * itself with a timeout.
  */
 async function waitForIdle(
-  client: (typeof pendingQueryClients)[number],
+  clients: typeof pendingQueryClients,
   timeoutMs = 2000,
   intervalMs = 20
 ): Promise<void> {
+  const busy = () =>
+    openApiRequests() > 0 ||
+    clients.some((client) => client.isFetching() > 0 || client.isMutating() > 0);
   const deadline = Date.now() + timeoutMs;
   // Always yield at least once before the first check: a query mounted this
   // tick (e.g. a dialog that just opened) may not have dispatched its fetch
-  // yet, so `isFetching()` can still read 0 the instant `cleanup()` returns,
-  // even though a request is about to go out.
+  // yet, so nothing reads as busy the instant `cleanup()` returns, even though
+  // a request is about to go out.
   do {
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
-  } while ((client.isFetching() > 0 || client.isMutating() > 0) && Date.now() < deadline);
+  } while (busy() && Date.now() < deadline);
 }
 
 afterEach(async () => {
@@ -66,11 +90,10 @@ afterEach(async () => {
   window.localStorage.clear();
 
   // Unmounting stops any query's own refetch scheduling, but a request already
-  // dispatched before unmount can still be in flight for a moment after. Give
-  // every client this test created a bounded chance to finish before the
-  // handlers it was relying on disappear underneath it.
-  const clients = pendingQueryClients.splice(0);
-  await Promise.all(clients.map((client) => waitForIdle(client)));
+  // sent before unmount can still be on its way to MSW. Give every request a
+  // bounded chance to land on the handlers it was sent against, before they
+  // disappear underneath it and it is blamed on the next test.
+  await waitForIdle(pendingQueryClients.splice(0));
 
   worker.resetHandlers();
   clearTokens();

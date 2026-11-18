@@ -6,8 +6,10 @@ import { SearchBar } from '@/components/inputs/SearchBar.tsx';
 import { PageContainer } from '@/components/layout/Layouts.tsx';
 import { PageHeader } from '@/components/layout/PageHeader.tsx';
 import { PaginationControls } from '@/components/PaginationControls.tsx';
+import { UploadEpubFab } from '@/pages/LibraryPage/UploadEpubFab.tsx';
 import { Alert, Box } from '@mui/material';
 import { useNavigate, useSearch } from '@tanstack/react-router';
+import { useTranslation } from 'react-i18next';
 
 const BOOKS_PER_PAGE = 32;
 
@@ -18,6 +20,7 @@ const BOOKS_PER_PAGE = 32;
  * worth linking to, and the browser's back button is then the way out of one.
  */
 export const LibraryPage = () => {
+  const { t } = useTranslation();
   const navigate = useNavigate({ from: '/library' });
   const { search, page } = useSearch({ from: '/library' });
   const searchText = search || '';
@@ -59,30 +62,28 @@ export const LibraryPage = () => {
   return (
     <PageContainer maxWidth="xl">
       <PageHeader
-        title="Library"
+        title={t('common.nav.library')}
         search={
           <SearchBar
             onSearch={handleSearch}
-            placeholder="Search books by title or author..."
+            placeholder={t('library.libraryPage.searchPlaceholder')}
             initialValue={searchText}
           />
         }
-        count={data ? { value: data.total, noun: 'book' } : undefined}
+        count={data ? { value: data.total, unit: 'books' } : undefined}
       />
 
       {isLoading && <Spinner />}
 
       {isError && (
         <Box sx={{ py: 3 }}>
-          <Alert severity="error">Failed to load books. Please try again later.</Alert>
+          <Alert severity="error">{t('library.libraryPage.loadFailed')}</Alert>
         </Box>
       )}
 
       {data?.items && data.items.length === 0 && (
         <EmptyStateText variant="page">
-          {searchText
-            ? 'No books match your search.'
-            : 'No books yet. Upload highlights from your e-reader to get started.'}
+          {searchText ? t('library.libraryPage.noSearchMatches') : t('common.emptyStates.noBooks')}
         </EmptyStateText>
       )}
 
@@ -92,6 +93,8 @@ export const LibraryPage = () => {
           <PaginationControls count={totalPages} page={currentPage} onChange={handlePageChange} />
         </>
       )}
+
+      <UploadEpubFab />
     </PageContainer>
   );
 };

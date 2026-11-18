@@ -2,7 +2,8 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-07
-- **Amended:** 2026-09-13 — *Amendment 6* reverses §4
+- **Amended:** 2026-09-13 — *Amendment 6* reverses §4; 2026-09-15 — *Amendment 7*
+  settles what that amendment left open; 2026-09-15 — *Amendment 8* narrows *Amendment 2*
 - **Applies to:** `backend/`, `frontend/`, and the `xpoint-cfi` library
 - **Resolves:** #730 (M0.1, part of the web reader epic #729)
 - **Ground truth verified:** 2026-09-06
@@ -211,16 +212,17 @@ have been.
 - **Trusting a conversion without verification**, even for the reverse
   direction. A browser selection converting to an xpointer whose text does not
   match what the reader selected is a failed write, not a stored guess.
-  *Amendment 6* reopens what that should cost the reader, not the verification.
+  *Amendment 6* reopened what that should cost the reader, not the verification;
+  *Amendment 7* closes it, leaving this rule as written.
 - **Changing the KOReader sync contract.** The plugin-only surface stays as it
   is, so no `koreader-plugin` minimum bump comes out of this ADR.
 
 ## Pending
 
-**One question, opened by *Amendment 6*** — whether a reverse conversion that
-fails verification should stay a rejected write — is stated with its
-alternatives and its deadline in that amendment's *Open* section. Nothing else
-is open.
+Nothing. The one question *Amendment 6* opened — whether a reverse conversion
+that fails verification should stay a rejected write — is settled by
+*Amendment 7*: it should, and M4.2 (#751) implements it as a 422. The
+whitespace question *Amendment 8* opened is settled in that amendment.
 
 ## Consequences
 
@@ -347,9 +349,27 @@ and it has to know in order to re-post before it does.
   ship builds one.
 - **Flags** are the refresh cookie's, for the same reasons: `httpOnly`,
   `Secure` unless `COOKIE_SECURE` says otherwise (which is what lets a
-  plain-http development server work), `SameSite=Strict` — the reader and the
-  API are the same site, so the navigator's own loads carry it while nothing
-  off-site can make a browser spend it.
+  plain-http development server work).
+
+  `SameSite` is **not** the refresh cookie's. *Corrected 2026-09-15 (#838),
+  against what R1 shipped.* `Strict` was chosen on the reasoning that "the
+  reader and the API are the same site", which is true of every request the app
+  makes and false of the ones this cookie exists for. A chapter's own images,
+  stylesheets and fonts are asked for by the `blob:` document Readium builds,
+  and **WebKit counts that document cross-site**: under `Strict` — and under
+  `Lax`, which is no better — Safari sends no cookie at all, so every image in
+  every book 401s and the reader draws a broken image where the page should be.
+  Chromium counts the same document same-site, which is why only Safari ever
+  showed it and why Chromium-only tests could not.
+
+  The cookie is therefore `SameSite=None`, falling back to `Lax` where
+  `COOKIE_SECURE` is off, because `None` without `Secure` is a cookie the
+  browser rejects outright rather than merely withholds. What `None` costs is
+  bounded by what the cookie already is: every route it authenticates is a GET
+  of one book's files, path-scoped and expiring with the access token that
+  minted it, so a cross-site embed can spend it only for a response it cannot
+  read for want of CORS. `PUT .../reading-position` is Bearer-only and stays
+  that way.
 - **TTL** is the publication token's own lifetime **as a ceiling, capped by what
   is left of the access token actually being spent** — the cookie's `exp` is the
   earlier of the two, and `Max-Age` and `expires_in` are that real number. The
@@ -1005,6 +1025,9 @@ canonical column. **This amendment does not settle it.** The rejection stands
 provisionally, #830 implements it and is asked to make it easy to find, and it
 must be settled before M4 (#749) ships.
 
+> **Settled by *Amendment 7* (2026-09-15).** The rejection stands, at a floor of
+> a quote matched in exactly one place, and #751 implements it as a 422.
+
 ### Which tickets carry this
 
 | Ticket | What it lands |
@@ -1012,3 +1035,137 @@ must be settled before M4 (#749) ships.
 | #828 (R4.1) | The anchor port and its `xpoint-cfi` adapter, batch-shaped, storing nothing; this amendment |
 | #839 (R4.2) | The locator columns, their `locator_source_hash`, and the backfill |
 | #830 (R4.4) | The one route that still converts at write time |
+
+## Amendment 7: a failed reverse conversion stays a rejected write
+
+- **Date:** 2026-09-15
+- **Resolves:** the question *Amendment 6* left open, in time for M4 (#749)
+- **Carried by:** #751 (M4.2), the first ticket that writes a browser-made highlight
+
+*Amendment 6* asked whether a browser selection whose conversion cannot be
+trusted should still be refused, now that refusing costs the reader a highlight
+they just made rather than a sync a retry. **It should. The rejection stands,
+and M4.2 implements it as a 422.**
+
+### Why the alternatives are worse than the loss they avoid
+
+Both alternatives *Amendment 6* named put the failure somewhere the reader
+cannot see it, which is the trade §1 and §5 exist to refuse:
+
+- **A locator with a null xpointer** is a highlight that exists on the web and
+  nowhere else. Its author would find out when KOReader next opened the book and
+  the passage was not marked — long after the page they made it on was closed,
+  and with nothing to act on.
+- **A low-confidence xpointer, marked as such**, puts a guess in the canonical
+  column. Everything downstream reads that column without asking how it got
+  there: the e-reader draws it, chapter attribution files it, the position
+  orders it. One flag would have to be honoured in every one of those places
+  forever.
+
+A refusal costs one selection, now, on a page still showing the text — the one
+moment the reader can do something about it, by selecting again.
+
+### What it costs in practice, and why that is small
+
+The floor is a **quote matched in exactly one place** (`HIGHLIGHT_ONLY`), and a
+selection arrives with the context the same EPUB gave the browser moments
+earlier, so a correct one normally comes back at `BOTH_CONTEXTS` — or
+`ONE_CONTEXT` where it abuts the edge of its resource. What the floor refuses is
+`AMBIGUOUS`, the same words several times over with neither context settling
+which, and `FUZZY`, words not in the resource as written. Both would anchor the
+highlight over text the reader never selected.
+
+A selection anchored on an element or a progression rather than a quote is
+refused whatever its grade: those are how a *reading position* survives a page
+turn that names nothing (*Amendment 3*), and a highlight that quotes nothing has
+no passage to be.
+
+Note the asymmetry this leaves, and that it is deliberate. A reading position
+takes an approximate anchor because refusing one would refuse to record reading
+at all; a highlight does not, because a highlight is a claim about *these words*
+and a reader who loses one knows immediately.
+
+### Not adopted here
+
+Nothing about a **stored** locator changes: #839's columns, their source hash
+and the null-is-a-real-answer rule stand as *Amendment 6* wrote them. This
+settles only what happens when the conversion at write time will not carry.
+
+## Amendment 8: the browser writes a narrower selector than Readium generates
+
+- **Date:** 2026-09-15
+- **Resolves:** #750 (M4.1, part of epic #749)
+- **Narrows:** *Amendment 2*'s *Rejected: dropping `allow-scripts`*
+
+§2 says a selection made in the browser produces a locator. This settles what
+that locator's `cssSelector` looks like, now that something generates one.
+
+### The write path does not use Readium's generator
+
+*Amendment 2* says Readium injects `css-selector-generator` into every document
+"and that is what turns a browser selection into a Locator". The first half is
+still true and is still a reason `allow-scripts` stays — Readium's own
+`findFirstVisibleLocator` and its tap events are built on that generator, and
+without scripts none of the injection machinery runs at all. The second half is
+not what M4.1 shipped.
+
+**The selector is generated by our own helper**
+(`frontend/src/components/reader/selectionLocator.ts`), in a deliberately narrow
+dialect: an id or `body` at the root, `tag:nth-child(n)` for every step below
+it, and an id that would need escaping passed over rather than escaped.
+
+The reason is that the two ends of the round trip do not resolve selectors the
+same way. The browser resolves with `querySelector`; the backend resolves with
+`xpoint_cfi.css_selector.resolve_selector` against a parsed EPUB, which is a
+reimplementation rather than a browser engine. Readium's generator is
+configured (in `findFirstVisibleLocator`) with
+`["tag", "id", "class", "nthchild", "nthoftype", "attribute"]` and will happily
+emit class- and attribute-matching selectors; nothing establishes that the
+backend's resolver reads those. The narrow dialect is the one the *derived*
+locators already travel in and the one the resolver's tests exercise, so a
+browser-made locator and an ingest-made locator now name elements the same way.
+
+This costs longer selectors in documents with few ids. That is the cheaper
+failure: a selector that is merely verbose still resolves, and a selector the
+far end cannot read anchors a highlight nowhere.
+
+### Settled: a collapsed quote is the text `xpoint-cfi` matches
+
+*Opened and settled 2026-09-15, checked against `xpoint-cfi` v0.1.0 and fixed in
+v0.1.1.*
+
+The helper collapses runs of whitespace to single spaces in `text.before`,
+`text.highlight` and `text.after`. The library compares the same way:
+`locator_to_xpoint_range` hands the quote to `find_quote`, which runs the
+resource text through `normalize_with_map` and the quote and both contexts
+through `normalize_for_comparison`. Each collapses whitespace, turns no-break
+spaces into spaces, and drops soft hyphens and zero-width characters, so
+collapsing in the browser is harmless rather than required.
+
+Context length does not matter either. A context confirms a match by ending
+where the quote starts, or starting where it ends, checked with
+`endswith`/`startswith` in both directions, so 40 characters confirms as well as
+more; the library's own derived locators carry 40. `POINT_CONTEXT_CHARS` (120)
+and the `_first_run`/`_last_run` helpers this section first cited belong to the
+backend adapter (`xpoint_cfi_position_anchor_service.py`), where they build
+fallback anchors from an element or a `progression`, and play no part in
+matching a quote.
+
+The check did find a difference in *what the text is*. The library puts a
+newline between consecutive block elements whether or not the markup has
+whitespace there, following KOReader's highlight export; a DOM has no text
+between `</p><p>`, so `Range.toString()` puts nothing. In an EPUB shipped
+without indentation a selection read `here.Second` where the library held
+`here.\nSecond`: a quote crossing the break came back `FUZZY`, a character off
+at each end, and a context crossing it confirmed nothing.
+
+**That is the library's convention to absorb, not every browser client's to
+imitate.** v0.1.1 retries a match weaker than `BOTH_CONTEXTS` over the resource
+text without its block separators — the text a DOM holds — and keeps the
+stronger match. The helper keeps plain `Range.toString()` and drops only U+FEFF,
+which JavaScript's `\s` treats as whitespace and the library deletes.
+
+Measured by replaying about 7,150 random browser-style selections through
+`locator_to_xpoint_range` across the library's 13 test books: v0.1.0 placed
+7,124 at `BOTH_CONTEXTS` and 3 on the wrong text, all at block breaks; v0.1.1
+places 7,135 and none on the wrong text.

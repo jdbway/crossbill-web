@@ -11,6 +11,7 @@ import { formatTime } from '@/utils/date.ts';
 import { buildPreviewText } from '@/utils/highlightPreview.ts';
 import { Box, Link, Typography, useTheme } from '@mui/material';
 import { createLink } from '@tanstack/react-router';
+import { useTranslation } from 'react-i18next';
 import ReactMarkdown from 'react-markdown';
 
 import { captureLinkProps, moreInBookLinkProps } from './captureLinks.ts';
@@ -26,11 +27,11 @@ interface CaptureEntryProps {
 /**
  * One highlight or note in the dashboard's feed.
  *
- * A highlight is marked by the quote glyph and a note by the rail down its
- * left, which is how the book page marks each of them: the reader learns the
- * two markers once.
+ * A highlight is marked by the quote glyph, as on the book page; a note by
+ * its title and kind chip.
  */
 export const CaptureEntry = ({ capture }: CaptureEntryProps) => {
+  const { t } = useTranslation();
   const theme = useTheme();
   const isHighlight = capture.kind === 'highlight';
 
@@ -45,7 +46,6 @@ export const CaptureEntry = ({ capture }: CaptureEntryProps) => {
           textAlign: 'left',
           py: 1.5,
           px: 1.5,
-          ...(isHighlight ? {} : { borderLeft: '3px solid', borderColor: 'primary.main', pl: 2 }),
         }}
       >
         {isHighlight && (
@@ -60,7 +60,8 @@ export const CaptureEntry = ({ capture }: CaptureEntryProps) => {
           />
         )}
 
-        <Box sx={{ flex: 1, minWidth: 0 }}>
+        {/* Baseline-aligned with the time, so the time reads level with the first line. */}
+        <Box sx={{ flex: 1, minWidth: 0, alignSelf: 'baseline' }}>
           {/* An h4: the day this capture sits under is the h3 above it. */}
           {capture.title && (
             <Typography variant="h3" component="h4">
@@ -86,13 +87,16 @@ export const CaptureEntry = ({ capture }: CaptureEntryProps) => {
               items={[
                 capture.book_title,
                 capture.chapter_name,
-                capture.page && `Page ${capture.page}`,
+                capture.page && t('common.labels.page', { page: capture.page }),
               ]}
             />
           </Box>
         </Box>
 
-        <Typography variant="caption" sx={{ color: 'text.secondary', whiteSpace: 'nowrap' }}>
+        <Typography
+          variant="caption"
+          sx={{ color: 'text.secondary', whiteSpace: 'nowrap', alignSelf: 'baseline' }}
+        >
           {formatTime(capture.captured_at)}
         </Typography>
       </LinkCardActionArea>
@@ -110,7 +114,10 @@ export const CaptureEntry = ({ capture }: CaptureEntryProps) => {
             '&:hover': { textDecoration: 'underline' },
           }}
         >
-          {`+${capture.more_in_book} more in ${capture.book_title} that day`}
+          {t('landing.captureEntry.moreInBook', {
+            count: capture.more_in_book,
+            book: capture.book_title,
+          })}
         </RouterLink>
       )}
     </Box>

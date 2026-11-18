@@ -5,9 +5,9 @@
 import logging
 import mimetypes
 import posixpath
-import struct
 import zipfile
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
+from contextlib import contextmanager
 from io import BytesIO
 from typing import NamedTuple, cast
 from urllib.parse import quote, unquote
@@ -22,8 +22,9 @@ from src.application.web_reader.publications import (
     TocEntry,
     epub_content_hash,
 )
+from src.domain.library.entities.epub_metadata import EpubMetadata
 from src.domain.library.exceptions import InvalidEbookError
-from src.infrastructure.common.zip_members import read_bounded_member
+from src.infrastructure.common.zip_members import read_member
 
 logger = logging.getLogger(__name__)
 
@@ -55,21 +56,6 @@ _LAYOUT_BY_ITEMREF_PROPERTY = {
     "rendition:layout-pre-paginated": PublicationLayout.FIXED,
     "rendition:layout-reflowable": PublicationLayout.REFLOWABLE,
 }
-
-# The upload limit bounds only the compressed bytes, so these bound the shape an
-# archive declares. Both sit far above any real book, illustrated ones included.
-MAX_PUBLICATION_ENTRIES = 10_000
-MAX_PUBLICATION_UNCOMPRESSED_BYTES = 2 * 1024**3
-
-# A package document lists one item per archive member, so at a generous 200
-# bytes an item even a ten-thousand-file book writes about 2 MB of one.
-MAX_STRUCTURAL_DOCUMENT_BYTES = 16 * 1024 * 1024
-
-# Offsets into the End of Central Directory record, from APPNOTE.TXT 4.3.16.
-_EOCD_SIGNATURE = b"PK\x05\x06"
-_EOCD_SIZE = 22
-_EOCD_ENTRY_COUNT_OFFSET = 10
-_EOCD_MAX_COMMENT = 0xFFFF
 
 
 class _ManifestItem(NamedTuple):
@@ -103,21 +89,14 @@ def read_publication(epub_content: bytes) -> ParsedPublication:
     """Resolve an EPUB into its reading order, resources, table of contents and metadata.
 
     Raises:
-        InvalidEbookError: If the archive declares a shape no book has, the bytes
-            are not a readable EPUB, its package document is missing, oversized or
-            unparseable, or its spine names nothing the publication contains.
+        InvalidEbookError: If the bytes are not a readable EPUB, its package
+            document is missing or unparseable, or its spine names nothing the
+            publication contains.
     """
-    _reject_overfull_archive(epub_content)
-    try:
-        with zipfile.ZipFile(BytesIO(epub_content)) as archive:
-            _reject_oversized_archive(archive)
-            package = _read_package_document(archive)
-            toc = _read_navigation(archive, package)
-            sizes = {entry.filename: entry.file_size for entry in archive.infolist()}
-    except InvalidEbookError:
-        raise
-    except Exception as e:
-        raise InvalidEbookError(f"unreadable package document: {e!s}", "epub") from e
+    with _epub_archive(epub_content) as archive:
+        package = _read_package_document(archive)
+        toc = _read_navigation(archive, package)
+        sizes = {entry.filename: entry.file_size for entry in archive.infolist()}
 
     items_by_id = {item.item_id: item for item in package.items}
     spine_ids = [idref for idref in package.spine if idref in items_by_id]
@@ -154,72 +133,54 @@ def read_publication(epub_content: bytes) -> ParsedPublication:
     )
 
 
-def _declared_entry_count(epub_content: bytes) -> int | None:
-    # Refuses an archive that admits to being overfull without paying for its
-    # directory. One that understates the count is caught after opening instead.
-    tail_start = max(0, len(epub_content) - (_EOCD_SIZE + _EOCD_MAX_COMMENT))
-    eocd = epub_content.rfind(_EOCD_SIGNATURE, tail_start)
-    if eocd < 0 or eocd + _EOCD_SIZE > len(epub_content):
-        return None
-    # 0xFFFF, the sentinel for a count only ZIP64 holds, is itself over the limit.
-    (count,) = struct.unpack_from("<H", epub_content, eocd + _EOCD_ENTRY_COUNT_OFFSET)
-    return count
+def read_epub_metadata(epub_content: bytes) -> EpubMetadata:
+    """Read the title, creators and language an EPUB's package document states."""
+    with _epub_archive(epub_content) as archive:
+        package, _ = _read_package(archive)
+
+    values = _dc_elements(package)
+    return EpubMetadata(
+        title=_first_metadata(values, "title"),
+        authors=tuple(
+            author
+            for element in values.get("creator", [])
+            if (author := (element.text or "").strip())
+        ),
+        language=_first_metadata(values, "language"),
+    )
 
 
-def _reject_overfull_archive(epub_content: bytes) -> None:
-    declared = _declared_entry_count(epub_content)
-    if declared is not None and declared > MAX_PUBLICATION_ENTRIES:
-        raise InvalidEbookError(
-            f"declares {declared} entries, over the {MAX_PUBLICATION_ENTRIES} limit", "epub"
-        )
-
-
-def _reject_oversized_archive(archive: zipfile.ZipFile) -> None:
-    entries = archive.infolist()
-    # A count the record understated would otherwise slip past the check made
-    # before the archive was opened.
-    if len(entries) > MAX_PUBLICATION_ENTRIES:
-        raise InvalidEbookError(
-            f"holds {len(entries)} entries, over the {MAX_PUBLICATION_ENTRIES} limit", "epub"
-        )
-    # A sanity check rather than a decompression limit: the sizes are attacker-
-    # controlled, so it only turns away what *claims* to expand to tens of gigabytes.
-    declared_bytes = sum(entry.file_size for entry in entries)
-    if declared_bytes > MAX_PUBLICATION_UNCOMPRESSED_BYTES:
-        raise InvalidEbookError(
-            f"declares {declared_bytes} uncompressed bytes, over the "
-            f"{MAX_PUBLICATION_UNCOMPRESSED_BYTES} limit",
-            "epub",
-        )
+@contextmanager
+def _epub_archive(epub_content: bytes) -> Iterator[zipfile.ZipFile]:
+    try:
+        with zipfile.ZipFile(BytesIO(epub_content)) as archive:
+            yield archive
+    except InvalidEbookError:
+        raise
+    except Exception as e:
+        raise InvalidEbookError(f"unreadable package document: {e!s}", "epub") from e
 
 
 def _read_package_document(archive: zipfile.ZipFile) -> _PackageDocument:
+    package, opf_path = _read_package(archive)
+    return _parse_package_document(package, posixpath.dirname(opf_path))
+
+
+def _read_package(archive: zipfile.ZipFile) -> tuple[etree._Element, str]:
     container = etree.fromstring(_read_structural_document(archive, CONTAINER_PATH))
     rootfile = container.find(f".//{{{_CONTAINER_NS}}}rootfile")
     opf_path = rootfile.get("full-path") if rootfile is not None else None
     if not opf_path:
         raise InvalidEbookError("container.xml names no package document", "epub")
-
-    return _parse_package_document(
-        etree.fromstring(_read_structural_document(archive, opf_path)),
-        posixpath.dirname(opf_path),
-    )
+    return etree.fromstring(_read_structural_document(archive, opf_path)), opf_path
 
 
 def _read_structural_document(archive: zipfile.ZipFile, name: str) -> bytes:
-    # The cap turns away a member that honestly says it is too big; the bounded
-    # read stops a member that lies about its size from inflating anyway.
     try:
         entry = archive.getinfo(posixpath.normpath(name))
     except KeyError as e:
         raise InvalidEbookError(f"is missing {name!r}", "epub") from e
-    if entry.file_size > MAX_STRUCTURAL_DOCUMENT_BYTES:
-        raise InvalidEbookError(
-            f"{entry.filename!r} declares {entry.file_size} bytes, over the "
-            f"{MAX_STRUCTURAL_DOCUMENT_BYTES} limit",
-            "epub",
-        )
-    return read_bounded_member(archive, entry)
+    return read_member(archive, entry)
 
 
 def _parse_package_document(package: etree._Element, directory: str) -> _PackageDocument:
@@ -272,17 +233,20 @@ def _media_type(declared: str | None, file_name: str) -> str:
 
 
 def _metadata(package: etree._Element) -> PublicationMetadata:
-    values: dict[str, list[etree._Element]] = {}
-
-    for element in _children(package.find(f"{{{_OPF_NS}}}metadata"), f"{{{_DC_NS}}}*"):
-        values.setdefault(str(element.tag).rpartition("}")[2], []).append(element)
-
+    values = _dc_elements(package)
     return PublicationMetadata(
         title=_first_metadata(values, "title"),
         author=_first_metadata(values, "creator"),
         language=_first_metadata(values, "language"),
         identifier=_identifier(package.get("unique-identifier"), values.get("identifier", [])),
     )
+
+
+def _dc_elements(package: etree._Element) -> dict[str, list[etree._Element]]:
+    values: dict[str, list[etree._Element]] = {}
+    for element in _children(package.find(f"{{{_OPF_NS}}}metadata"), f"{{{_DC_NS}}}*"):
+        values.setdefault(str(element.tag).rpartition("}")[2], []).append(element)
+    return values
 
 
 def _first_metadata(values: dict[str, list[etree._Element]], name: str) -> str | None:
@@ -390,7 +354,7 @@ def _read_navigation(archive: zipfile.ZipFile, package: _PackageDocument) -> tup
         return ()
 
     # Navigation that cannot be parsed costs the table of contents alone; one the
-    # archive will not yield -- oversized, corrupt, lying about its size -- costs the book.
+    # archive will not yield -- corrupt, cut short -- costs the book.
     try:
         return source.parse(_read_structural_document(archive, member), posixpath.dirname(member))
     except InvalidEbookError:

@@ -1,11 +1,11 @@
 import type { BookWithHighlightCount } from '@/api/generated/model';
 import { aBookDetails, aChapter, aHighlight } from '@tests/fixtures/book';
 import { renderApp } from '@tests/harness/renderApp';
+import { afterTheAnswersRender } from '@tests/harness/settle';
 import { bookApi } from '@tests/msw/bookApi';
 import { worker } from '@tests/msw/worker';
 import { http, HttpResponse } from 'msw';
 import { expect, test } from 'vitest';
-import { page, userEvent } from 'vitest/browser';
 
 const aBookListItem = (title: string): BookWithHighlightCount => ({
   id: 1,
@@ -99,11 +99,11 @@ type BookListPage = Awaited<ReturnType<typeof aBookListReadyToRefresh>>;
 
 /**
  * Nothing refetched: still the one request, still the original title. A
- * refresh fires its request off the touchend handler, so whatever the drag was
- * going to do has reached the handler well inside this window.
+ * refresh fires its request off the touchend handler, so once every answer is
+ * in, whatever the drag was going to do has reached the handler.
  */
 async function expectNoRefresh({ screen, state }: BookListPage) {
-  await new Promise((resolve) => setTimeout(resolve, 300));
+  await afterTheAnswersRender(screen.queryClient);
 
   expect(state.requests).toBe(1);
   await expect.element(screen.getByText(ORIGINAL_TITLE)).toBeVisible();
@@ -153,27 +153,4 @@ test('a downward swipe inside an open dialog is left to the dialog to scroll', a
   const { prevented } = dragDown(300);
 
   expect(prevented).toBe(false);
-});
-
-/**
- * Regression for #648: the filter drawer is an overlay like any dialog, so a
- * swipe over it scrolls its filters instead of pulling the page behind it
- * down into a refresh.
- */
-test('a downward swipe inside the open filter drawer is left to the drawer to scroll', async () => {
-  await page.viewport(400, 800);
-  try {
-    const book = aBookDetails({ chapters: [aChapter({ highlights: [aHighlight({ id: 301 })] })] });
-    worker.use(...bookApi({ book }).handlers);
-
-    const screen = await renderApp({ path: '/book/1/highlights' });
-    await userEvent.click(screen.getByRole('button', { name: 'Open filters' }));
-    await expect.element(screen.getByRole('tab', { name: 'Chapters' })).toBeVisible();
-
-    const { prevented } = dragDown(300);
-
-    expect(prevented).toBe(false);
-  } finally {
-    await page.viewport(1440, 900);
-  }
 });

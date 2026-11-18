@@ -27,10 +27,10 @@ _Avoid_: status, state, progress
 ### Reading
 
 **Highlight**:
-A passage of text the user marked on their e-reader, imported into Crossbill. A
-highlight carries the passage and where it sits in the book, plus any note the
-user typed on the e-reader and the device it came from. The words they write
-about it in Crossbill live in a Note.
+A passage of text the user marked on their e-reader and imported into
+Crossbill, or marked in the Web Reader. A highlight carries the passage and
+where it sits in the book, plus any note the user typed on the e-reader and the
+device it came from. The words they write about it in Crossbill live in a Note.
 _Avoid_: annotation, clipping, excerpt, quote, passage
 
 **Highlight Style**:
@@ -41,9 +41,11 @@ _Avoid_: colour, marker, pen
 **Label**:
 The meaning a user assigned to a Highlight Style: what they meant when they
 reached for the yellow highlighter. A highlight inherits at most one label,
-from the device. Contrast Tag, which the user applies in Crossbill and can
-apply many of. A label may be set per book or globally, and resolves down a
-fallback chain from the most specific match to the least.
+from whichever style it is filed under — the one the device sent it in, or
+another the user picked in Crossbill by recolouring that one highlight.
+Contrast Tag, which the user applies in Crossbill and can apply many of. A
+label may be set per book or globally, and resolves down a fallback chain from
+the most specific match to the least.
 _Avoid_: category, tag, name
 
 **Bookmark**:
@@ -52,9 +54,16 @@ has many. Bookmarks say nothing about reading progress.
 _Avoid_: pin, favourite, star, progress marker
 
 **Reading Session**:
-A continuous stretch of reading that the e-reader recorded — when it started
-and ended, and how far through the book it ran.
+A continuous stretch of reading that the e-reader or the Web Reader recorded —
+when it started and ended, and how far through the book it ran.
 _Avoid_: session (bare — see AI Chat Session), sitting
+
+**Reading Position**:
+Where a user left off in a book. The Web Reader opens a book at the later of
+two: the position it last stored itself, and the end of the latest reading
+session another device recorded. The e-reader keeps its own place and never
+reads this.
+_Avoid_: progress (see Reading Stage), bookmark, last page
 
 **Skimming**:
 Adler's second level of reading — systematic skimming and superficial reading —
@@ -120,9 +129,19 @@ _Avoid_: account, owner, member
 
 **E-reader**:
 The user's reading device, running the KOReader plugin. It is the origin of
-highlights, highlight styles and reading sessions, and it can pull chapter
-digests back down for reading on the device, as well as the server's copy of a
-book's highlights. When two e-readers edit the same highlight, the newer edit
-wins.
+highlight styles, of EPUB files (which can also be uploaded in the browser),
+and of most highlights and reading sessions — the Web Reader makes the rest. It
+can pull chapter digests back down for reading on the device, as well as the
+server's copy of a book's highlights.
+When two e-readers edit the same highlight, the newer edit wins.
 _Avoid_: client, device, KOReader (when speaking of the role rather than the
 software)
+
+**Web Reader**:
+The reader built into Crossbill that shows a book's EPUB in the browser. Like
+the e-reader, it records reading sessions and makes highlights, which reach the
+e-reader on its next sync. It needs the book's EPUB, which the e-reader
+uploads or the user uploads in the browser, on the library page. Internally,
+the EPUB as the Web Reader serves it is a _publication_ — Readium's term; say
+Book everywhere else.
+_Avoid_: e-reader, viewer, browser reader
